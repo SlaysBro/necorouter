@@ -252,6 +252,30 @@ build_source() {
 # GitHub repository and release URLs. NECOROUTER_RELEASE_BASE overrides the base (used by tests).
 REPO=$(sed -n 's/^REPO=//p' "$HERE/source.conf" 2>/dev/null | head -1)
 RELEASE_BASE=${NECOROUTER_RELEASE_BASE:-https://github.com/$REPO/releases}
+has_downloader() {
+	command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1 ||
+	{ command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx wget; } ||
+	command -v python3 >/dev/null 2>&1
+}
+ensure_downloader() {
+	has_downloader && return 0
+	[ "$DEPS" = 1 ] || return 1
+	echo "==> installing curl for release download"
+	case $FAMILY in
+		debian)
+			export DEBIAN_FRONTEND=noninteractive
+			apt-get update -qq || true
+			apt-get install -y -qq --no-install-recommends curl >/dev/null 2>&1 || true ;;
+		rhel)
+			PM=$(command -v dnf || command -v yum)
+			$PM install -y -q curl >/dev/null 2>&1 || true ;;
+		alpine)
+			apk update -q || true
+			apk add -q curl >/dev/null 2>&1 || true ;;
+		*) return 1 ;;
+	esac
+	command -v curl >/dev/null 2>&1
+}
 fetch() { # $1 = URL, $2 = file
 	if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$2" "$1"
 	elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
@@ -276,6 +300,7 @@ else:
 download_release() {
 	[ -n "$ASSET_ARCH" ] || { echo "no release binary for $(uname -m)" >&2; return 1; }
 	[ -n "$REPO" ] || { echo "packaging/source.conf does not name a repository" >&2; return 1; }
+	ensure_downloader || { echo "no downloader available; install curl/wget/Python 3, or use --local / --build / --bin" >&2; return 1; }
 	asset=necorouter-$ASSET_ARCH
 	if [ -n "$VERSION_TAG" ]; then base=$RELEASE_BASE/download/$VERSION_TAG
 	elif [ "$PRE" = 1 ]; then
