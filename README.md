@@ -16,7 +16,8 @@ vendor's software. The command syntax is modelled on commercial router CLIs so t
 to people who have worked with them.
 
 The code was written with the help of **Claude**, an AI assistant by Anthropic, which was used for design,
-code generation, tests and review. The router itself is written in **Go** using only the standard library.
+code generation, tests and review. **OpenAI Codex** was also used to debug issues, improve tests and review changes.
+The router itself is written in **Go** using only the standard library.
 
 ## Features
 
