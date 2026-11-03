@@ -254,7 +254,24 @@ REPO=$(sed -n 's/^REPO=//p' "$HERE/source.conf" 2>/dev/null | head -1)
 RELEASE_BASE=${NECOROUTER_RELEASE_BASE:-https://github.com/$REPO/releases}
 fetch() { # $1 = URL, $2 = file
 	if command -v curl >/dev/null 2>&1; then curl -fsSL -o "$2" "$1"
-	else wget -q -O "$2" "$1"; fi
+	elif command -v wget >/dev/null 2>&1; then wget -q -O "$2" "$1"
+	elif command -v busybox >/dev/null 2>&1 && busybox --list 2>/dev/null | grep -qx wget; then
+		busybox wget -q -O "$2" "$1"
+	elif command -v python3 >/dev/null 2>&1; then
+		python3 -c '
+import sys, urllib.request
+with urllib.request.urlopen(sys.argv[1]) as response:
+	data = response.read()
+if sys.argv[2] == "/dev/stdout":
+	sys.stdout.buffer.write(data)
+else:
+	with open(sys.argv[2], "wb") as output:
+		output.write(data)
+' "$1" "$2"
+	else
+		echo "no downloader found (need curl, wget, BusyBox wget, or Python 3)" >&2
+		return 127
+	fi
 }
 download_release() {
 	[ -n "$ASSET_ARCH" ] || { echo "no release binary for $(uname -m)" >&2; return 1; }
