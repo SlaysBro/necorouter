@@ -1,7 +1,17 @@
 Packages that necorouter needs on the target system.
-The installer (install.sh) installs all of the listed packages itself.
+The installer (install.sh) attempts to install the listed packages (best effort).
+It does not perform a full operating-system upgrade, though the package manager may update packages needed by the router.
 Package names were chosen for typical distributions and have not been verified on real systems:
 check them against your repository.
+
+These are runtime dependencies, not the installer's download tools. For GitHub releases, install.sh uses an
+available curl, wget, BusyBox wget, or Python 3. If none is available and dependency installation is enabled,
+it tries to install curl through the system package manager. The necorouter binary is checked against SHA256SUMS
+from the same release; this detects transfer damage, not a compromised release.
+
+Dependency package signatures are checked by the distribution's package manager according to its repository
+configuration. APT authenticates signed repository metadata by default, DNF follows each repository's gpgcheck
+setting, and Alpine APK uses trusted signing keys. The installer does not maintain a separate hash list for packages.
 
 Purpose                            Debian/Ubuntu               RHEL/RedOS/Fedora        Alpine
 ---------------------------------  --------------------------  -----------------------  ---------------------

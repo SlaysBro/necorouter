@@ -71,12 +71,17 @@ real hardware: the installer and service scripts have been checked in emulated e
        cd necorouter
 
 2. **Install** as root. By default the installer downloads the latest stable release from GitHub,
-   checks it against `SHA256SUMS`, installs the system packages, copies the binary to `/usr/local/bin`,
+   checks it against `SHA256SUMS`, attempts to install the required system packages, copies the binary to `/usr/local/bin`,
    creates the `/usr/bin/necorouter` link, and enables and starts the service:
 
        sudo sh packaging/install.sh
 
    The GitHub repository is set in [`packaging/source.conf`](packaging/source.conf).
+
+   Downloads use an available `curl`, `wget`, BusyBox `wget`, or Python 3. If none is available, the installer
+   tries to install `curl` through the system package manager (unless `--no-deps` is set). The checksum file is
+   downloaded from the same release; it detects transfer damage but is not a separate signature of the release.
+   The installer does not upgrade the whole operating system; the package manager may update packages required by the router.
 
    Installer options:
 
@@ -131,7 +136,8 @@ From privileged mode:
 
 The update runs in the background; the router restarts and sessions end. Progress is in
 `/var/log/necorouter/update.log`. Releases are checked against `SHA256SUMS`; the checksums come from the same
-release, so they protect against damaged downloads, not against a compromised release.
+release, so they protect against damaged downloads, not against a compromised release. These commands update
+necorouter only, not the operating system.
 
 ## Quick start: an example configuration
 
