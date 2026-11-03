@@ -1,0 +1,27 @@
+Packages that necorouter needs on the target system.
+The installer (install.sh) installs all of the listed packages itself.
+Package names were chosen for typical distributions and have not been verified on real systems:
+check them against your repository.
+
+Purpose                            Debian/Ubuntu               RHEL/RedOS/Fedora        Alpine
+---------------------------------  --------------------------  -----------------------  ---------------------
+sshd (login, banner)               openssh-server              openssh-server           openssh
+nftables (NAT, filter-map, ...)    nftables                    nftables                 nftables
+DHCP server, DNS                   dnsmasq-base                dnsmasq                  dnsmasq
+OSPF                               frr                         frr (EPEL/repository     frr
+                                                               FRR)
+NTP client                         chrony                      chrony                   chrony
+Time zones                         tzdata                      tzdata                   tzdata
+ping, traceroute                   iputils-ping traceroute     iputils traceroute       iputils traceroute
+IPsec (IKEv1/IKEv2)          strongswan-swanctl          strongswan               strongswan
+                                   strongswan-charon
+
+Notes
+- The router starts charon lazily: only when the configuration contains crypto-ipsec. IPsec is needed only for the crypto-ipsec / crypto-map commands. Without strongSwan these commands
+  are accepted, but the service does not start: show services and the warning on apply
+  will say "strongSwan is not installed".
+- The router starts charon itself (like frr, dnsmasq, chrony); the system strongswan service
+  does not need to be enabled, and it is best to disable it when installing the package: systemctl disable --now strongswan
+  (or strongswan-starter / strongswan-swanctl, depending on the distribution).
+- The charon and swanctl binaries are required. Search directories: PATH, /usr/lib/ipsec, /usr/libexec/ipsec,
+  /usr/lib/strongswan, /usr/libexec/strongswan, /usr/sbin, /sbin, /usr/local/sbin.

@@ -1,0 +1,83 @@
+//go:build nltest
+
+package cli
+
+import (
+	"os"
+	"reflect"
+	"testing"
+
+	"necorouter/internal/nl"
+)
+
+// A repeated ip address command replaces the address rather than adding a second one.
+func TestIPAddressReplaces(t *testing.T) {
+	r, _ := replay(t, "interface isp\n ip address 10.1.1.1/24\n ip address 10.2.2.2/24\n")
+	i := r.Cfg.FindIface("isp")
+	if i == nil || !reflect.DeepEqual(i.Addrs, []string{"10.2.2.2/24"}) {
+		t.Fatalf("after second ip address: %v (want only 10.2.2.2/24)", i.Addrs)
+	}
+}
+
+// no ip address A/M removes only the given address; no ip address — all of them.
+func TestIPAddressNoForms(t *testing.T) {
+	r := newTestRouter(t)
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s.Exec("interface isp", nil)
+	s.Exec("ip address 10.1.1.1/24", nil)
+	s.Exec("ip address 10.2.2.2/24", nil)
+	if i := r.Cfg.FindIface("isp"); len(i.Addrs) != 1 {
+		t.Fatalf("addrs: %v", i.Addrs)
+	}
+	s.Exec("no ip address 10.2.2.2/24", nil)
+	if i := r.Cfg.FindIface("isp"); len(i.Addrs) != 0 {
+		t.Fatalf("no ip address A did not remove: %v", i.Addrs)
+	}
+	s.Exec("ip address 10.3.3.3/24", nil)
+	s.Exec("no ip address", nil)
+	if i := r.Cfg.FindIface("isp"); len(i.Addrs) != 0 {
+		t.Fatalf("no ip address did not clear: %v", i.Addrs)
+	}
+}
+
+// On a kernel: the second command removes the old address from the interface and sets the new one.
+// Runs only in an isolated network (NR_NETNS=1), see test/addr_replace.sh.
+func TestKernelAddressReplace(t *testing.T) {
+	if os.Getenv("NR_NETNS") != "1" {
+		t.Skip("needs NR_NETNS=1 (isolated network namespace, root)")
+	}
+	c, err := nl.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.AddVeth("nrv0", "nrv1"); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.SetUp("nrv0", true)
+	r := newRouterWith(t, "te0 nrv0\n", true) // port te0 -> veth nrv0, services enabled (netSvc)
+	setup := `
+interface isp
+ ip address 10.1.1.1/24
+exit
+port te0
+ service-instance te0/isp
+  encapsulation untagged
+  connect ip interface isp
+ exit
+exit
+`
+	if errs := r.Replay(setup); len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	if got := nl.Addrs("nrv0"); !got["10.1.1.1/24"] {
+		t.Fatalf("first address not on kernel: %v", got)
+	}
+	if errs := r.Replay("interface isp\n ip address 10.2.2.2/24\n"); len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	got := nl.Addrs("nrv0")
+	if got["10.1.1.1/24"] || !got["10.2.2.2/24"] {
+		t.Fatalf("kernel addresses after replace: %v (want only 10.2.2.2/24)", got)
+	}
+}

@@ -1,0 +1,49 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check that the tag matches cmd/necorouter/VERSION
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          ver=$(tr -d '[:space:]' < cmd/necorouter/VERSION)
+          if [ "$tag" != "$ver" ]; then
+            echo "tag $GITHUB_REF_NAME does not match VERSION $ver" >&2
+            exit 1
+          fi
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: make all
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum necorouter-x86_64 necorouter-aarch64 > ../SHA256SUMS
+          cat ../SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" $pre --generate-notes \
+            dist/necorouter-x86_64 dist/necorouter-aarch64 SHA256SUMS

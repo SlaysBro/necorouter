@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+# OpenRC (Alpine)
+description="necorouter - software router"
+command="/usr/local/bin/necorouter"
+command_args="daemon"
+command_background=true
+pidfile="/run/necorouter.pid"
+output_log="/var/log/necorouter.log"
+error_log="/var/log/necorouter.log"
+stopsig="TERM"
+retry="TERM/15/KILL/5"
+
+depend() {
+	need localmount
+	after bootmisc
+}

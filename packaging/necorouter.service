@@ -1,0 +1,17 @@
+[Unit]
+Description=necorouter - software router
+Documentation=file:///usr/local/share/doc/necorouter/README.md
+After=local-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/necorouter daemon
+Restart=on-failure
+RestartSec=2
+# SIGTERM tears down everything the router brought up (addresses, NAT, dnsmasq, FRR, chrony)
+KillMode=control-group
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
