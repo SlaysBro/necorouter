@@ -121,18 +121,26 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 // ---- state: what exactly the router created (so as not to touch foreign things) ----
 
 type State struct {
-	mu     sync.Mutex
-	path   string
-	Addrs  map[string][]string `json:"addrs"`
-	Links  map[string]string   `json:"links"`
-	Routes []string            `json:"routes"`
-	Users  []string            `json:"users"`
-	Taken  map[string]string   `json:"taken,omitempty"` // taken accounts: name -> previous shell
-	DefPw  []string            `json:"defpw,omitempty"` // accounts with the default password
-	NFT    bool                `json:"nft"`
-	Sec    bool                `json:"sec,omitempty"` // nftables table of the security profile
-	FM     bool                `json:"fm,omitempty"`  // nftables table of filter-map
-	DNS    bool                `json:"dns"`
+	mu             sync.Mutex
+	path           string
+	Addrs          map[string][]string   `json:"addrs"`
+	Links          map[string]string     `json:"links"`
+	Routes         []string              `json:"routes"`
+	Users          []string              `json:"users"`
+	Taken          map[string]string     `json:"taken,omitempty"` // taken accounts: name -> previous shell
+	DefPw          []string              `json:"defpw,omitempty"` // accounts with the default password
+	NFT            bool                  `json:"nft"`
+	Sec            bool                  `json:"sec,omitempty"` // nftables table of the security profile
+	FM             bool                  `json:"fm,omitempty"`  // nftables table of filter-map
+	DNS            bool                  `json:"dns"`
+	TrafficShaping map[string]ShapeState `json:"traffic_shaping,omitempty"`
+}
+
+// ShapeState records only qdiscs and IFB devices created by applied QoS policies.
+type ShapeState struct {
+	IFB      string `json:"ifb,omitempty"`
+	Download bool   `json:"download,omitempty"`
+	Upload   bool   `json:"upload,omitempty"`
 }
 
 func LoadState(path string) *State {
@@ -148,6 +156,9 @@ func LoadState(path string) *State {
 	}
 	if s.Taken == nil {
 		s.Taken = map[string]string{}
+	}
+	if s.TrafficShaping == nil {
+		s.TrafficShaping = map[string]ShapeState{}
 	}
 	return s
 }
@@ -609,7 +620,7 @@ func NewManager(p Paths, l *log.Logger) *Manager {
 	env := &Env{P: p, Log: l, Sup: NewSupervisor(l), St: LoadState(p.State())}
 	env.Ports = LoadPortMap(p.PortMap())
 	return &Manager{Env: env, Services: []Service{
-		&hostSvc{}, &tzSvc{}, &usersSvc{}, &netSvc{}, &dnsSvc{},
+		&hostSvc{}, &tzSvc{}, &usersSvc{}, &netSvc{}, &trafficShapeSvc{}, &dnsSvc{},
 		&natSvc{}, &secSvc{}, &fmapSvc{}, &dhcpSvc{}, &ospfSvc{}, &ntpSvc{}, &ipsecSvc{},
 	}}
 }

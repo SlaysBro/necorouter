@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"necorouter/internal/config"
-	"necorouter/internal/nl"
 )
 
 func sysfs(dev, file string) string {
@@ -134,7 +133,7 @@ func PortList(env *Env, c *config.Config) string {
 
 // Routes implements "show ip route".
 func Routes(env *Env, c *config.Config) string {
-	rs, err := nl.Routes()
+	rs, err := systemRoutes()
 	if err != nil {
 		return "% " + err.Error() + "\n"
 	}
@@ -146,19 +145,19 @@ func Routes(env *Env, c *config.Config) string {
 			name = r.Dev
 		}
 		code, ad := "K", "0"
-		switch r.Proto {
-		case 2: // kernel
+		switch r.Protocol {
+		case "kernel", "connected", "link":
 			code = "C"
-		case nl.RTProtoStatic, 3: // static, boot
+		case "static", "boot":
 			code, ad = "S", "1"
-		case nl.RTProtoOSPF:
+		case "ospf":
 			code, ad = "O", "110"
 		}
 		var l string
-		if r.Gw == "" {
+		if r.Gateway == "" {
 			l = fmt.Sprintf("%s    %s is directly connected, %s", code, r.Dst, name)
 		} else {
-			l = fmt.Sprintf("%s    %s [%s/%d] via %s, %s", code, r.Dst, ad, r.Metric, r.Gw, name)
+			l = fmt.Sprintf("%s    %s [%s/%d] via %s, %s", code, r.Dst, ad, r.Metric, r.Gateway, name)
 		}
 		rows = append(rows, row{r.Dst, l})
 	}

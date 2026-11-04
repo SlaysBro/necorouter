@@ -109,7 +109,7 @@ func TestCopyFileToStartup(t *testing.T) {
 	}
 }
 
-// copy ... running-config: only with config-manage; protection against self-lockout.
+// Copying ordinary files to running-config needs config-manage; crash-config recovery remains available without it.
 func TestCopyToRunningGateAndLockoutProtection(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
@@ -279,8 +279,14 @@ func TestNewCommandsHiddenUntilService(t *testing.T) {
 	if out := s.Help("show config "); strings.Contains(out, "diff") || strings.Contains(out, "history") || strings.Contains(out, "journal") {
 		t.Fatalf("hidden commands leaked into help:\n%s", out)
 	}
-	if out := s.Help("copy "); strings.Contains(out, "crash-config") {
-		t.Fatalf("crash-config leaked into copy help:\n%s", out)
+	if out := s.Help("copy crash-config "); !strings.Contains(out, "running-config") || !strings.Contains(out, "startup-config") {
+		t.Fatalf("both crash-config copy operations must be available without config-manage:\n%s", out)
+	}
+	if out := s.Help("copy file crash "); !strings.Contains(out, "running-config") || !strings.Contains(out, "startup-config") {
+		t.Fatalf("crash file aliases must have the same copy operations without config-manage:\n%s", out)
+	}
+	if out := s.Help("delete config file "); !strings.Contains(out, "crash") || !strings.Contains(out, "crash-config") {
+		t.Fatalf("crash-config deletion must be available without config-manage:\n%s", out)
 	}
 	if out := s.Help("write "); strings.Contains(out, "description") {
 		t.Fatalf("description leaked into write help:\n%s", out)
@@ -289,8 +295,8 @@ func TestNewCommandsHiddenUntilService(t *testing.T) {
 	if out := s.Help("show config "); !strings.Contains(out, "diff") || !strings.Contains(out, "history") || !strings.Contains(out, "journal") {
 		t.Fatalf("enabled commands missing from help:\n%s", out)
 	}
-	if out := s.Help("copy "); !strings.Contains(out, "crash-config") {
-		t.Fatalf("crash-config missing after config-manage:\n%s", out)
+	if out := s.Help("copy crash-config "); !strings.Contains(out, "startup-config") || !strings.Contains(out, "running-config") {
+		t.Fatalf("crash-config copy options missing after config-manage:\n%s", out)
 	}
 	// disabling services changes no settings and deletes no files
 	runCmd(s, "configure terminal")

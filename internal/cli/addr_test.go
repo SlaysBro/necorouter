@@ -1,13 +1,14 @@
-//go:build nltest
+//go:build iproute2test
 
 package cli
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"reflect"
 	"testing"
-
-	"necorouter/internal/nl"
 )
 
 // A repeated ip address command replaces the address rather than adding a second one.
@@ -46,15 +47,13 @@ func TestKernelAddressReplace(t *testing.T) {
 	if os.Getenv("NR_NETNS") != "1" {
 		t.Skip("needs NR_NETNS=1 (isolated network namespace, root)")
 	}
-	c, err := nl.Open()
-	if err != nil {
+	if out, err := exec.Command("ip", "link", "add", "nrv0", "type", "veth", "peer", "name", "nrv1").CombinedOutput(); err != nil {
+		t.Fatalf("ip link add veth: %v: %s", err, out)
+	}
+	t.Cleanup(func() { _ = exec.Command("ip", "link", "del", "dev", "nrv0").Run() })
+	if err := exec.Command("ip", "link", "set", "dev", "nrv0", "up").Run(); err != nil {
 		t.Fatal(err)
 	}
-	defer c.Close()
-	if err := c.AddVeth("nrv0", "nrv1"); err != nil {
-		t.Fatal(err)
-	}
-	_ = c.SetUp("nrv0", true)
 	r := newRouterWith(t, "te0 nrv0\n", true) // port te0 -> veth nrv0, services enabled (netSvc)
 	setup := `
 interface isp
@@ -70,14 +69,41 @@ exit
 	if errs := r.Replay(setup); len(errs) > 0 {
 		t.Fatal(errs)
 	}
-	if got := nl.Addrs("nrv0"); !got["10.1.1.1/24"] {
+	if got := testIPAddrs(t, "nrv0"); !got["10.1.1.1/24"] {
 		t.Fatalf("first address not on kernel: %v", got)
 	}
 	if errs := r.Replay("interface isp\n ip address 10.2.2.2/24\n"); len(errs) > 0 {
 		t.Fatal(errs)
 	}
-	got := nl.Addrs("nrv0")
+	got := testIPAddrs(t, "nrv0")
 	if got["10.1.1.1/24"] || !got["10.2.2.2/24"] {
 		t.Fatalf("kernel addresses after replace: %v (want only 10.2.2.2/24)", got)
 	}
+}
+
+func testIPAddrs(t *testing.T, dev string) map[string]bool {
+	t.Helper()
+	b, err := exec.Command("ip", "-j", "address", "show", "dev", dev).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var links []struct {
+		AddrInfo []struct {
+			Family    string `json:"family"`
+			Local     string `json:"local"`
+			PrefixLen int    `json:"prefixlen"`
+		} `json:"addr_info"`
+	}
+	if err := json.Unmarshal(b, &links); err != nil {
+		t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, link := range links {
+		for _, a := range link.AddrInfo {
+			if a.Family == "inet" {
+				out[fmt.Sprintf("%s/%d", a.Local, a.PrefixLen)] = true
+			}
+		}
+	}
+	return out
 }

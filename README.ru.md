@@ -23,6 +23,7 @@ necorouter создан как учебный проект: чтобы поня�
 
 - Адреса интерфейсов, статические маршруты, DNS, порты и VLAN (`port teN`, сервис-инстансы, `dot1q`), GRE-туннели.
 - NAT: динамический NAT с overload и статический destination NAT с необязательным hairpin.
+- Защита от bufferbloat через команды service-policy/bandwidth в синтаксисе  и Linux CAKE для входящего и исходящего WAN-трафика.
 - DHCP-сервер (dnsmasq), NTP-клиент (chrony), OSPF (FRR).
 - IPsec: IKEv1 и IKEv2 с предварительными ключами, GRE over IPsec (strongSwan).
 - Карты маршрутов, префиксные списки и списки политик маршрутизации.
@@ -51,6 +52,31 @@ necorouter создан как учебный проект: чтобы поня�
 | ping и traceroute | iputils, traceroute |
 
 Пакеты для каждого дистрибутива перечислены в [`packaging/DEPENDENCIES`](packaging/DEPENDENCIES).
+
+## Ограничение трафика и bufferbloat
+
+При насыщении канала очередь может увеличить ping. Настройте политики командами на WAN service-instance. Начните с ограничений около 90–95% устойчивой измеренной скорости, чтобы CAKE удерживал узкое место очереди на роутере. Политика `in` ограничивает скачивание через IFB, а `out` — отдачу на выходе WAN. Для CAKE в ядре Linux должна быть доступна поддержка `sch_cake`.
+
+Для измеренного канала 100/10 Мбит/с начните примерно с 95/9 Мбит/с:
+
+    configure terminal
+    service-policy WAN-DOWN
+     bandwidth mbps 95
+    exit
+    service-policy WAN-UP
+     bandwidth mbps 9
+    exit
+    port te0
+     service-instance wan
+      encapsulation untagged
+      connect ip interface wan
+      service-policy WAN-DOWN in
+      service-policy WAN-UP out
+    end
+    write
+    show service-policy
+
+Укажите свои имена порта и service-instance. Скорости задаются явно: роутер не определяет устойчивую скорость провайдера автоматически. Команды соответствуют грамматике `service-policy` / `bandwidth` / `service-instance`; CAKE используется внутри Linux для активного управления очередью.
 
 ## Поддерживаемые системы
 

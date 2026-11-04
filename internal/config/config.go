@@ -47,12 +47,20 @@ type Iface struct {
 }
 
 type SI struct {
-	Name    string `json:"name"`
-	Encap   string `json:"encap,omitempty"` // untagged | dot1q
-	VLAN    int    `json:"vlan,omitempty"`
-	Exact   bool   `json:"exact,omitempty"`
-	Rewrite string `json:"rewrite,omitempty"`
-	Connect string `json:"connect,omitempty"` // ip-interface name
+	Name      string `json:"name"`
+	Encap     string `json:"encap,omitempty"` // untagged | dot1q
+	VLAN      int    `json:"vlan,omitempty"`
+	Exact     bool   `json:"exact,omitempty"`
+	Rewrite   string `json:"rewrite,omitempty"`
+	Connect   string `json:"connect,omitempty"` // ip-interface name
+	PolicyIn  string `json:"policy_in,omitempty"`
+	PolicyOut string `json:"policy_out,omitempty"`
+}
+
+type ServicePolicy struct {
+	Name           string `json:"name"`
+	BandwidthUnit  string `json:"bandwidth_unit,omitempty"`
+	BandwidthValue int    `json:"bandwidth_value,omitempty"`
 }
 
 type Port struct {
@@ -165,41 +173,42 @@ var DefaultSecurity = []SecRule{
 }
 
 type Config struct {
-	Hostname      string              `json:"hostname"`
-	EnablePass    string              `json:"enable_pass,omitempty"` // hash of the enable-mode password (the plaintext password is not stored)
-	BannerMotd    string              `json:"banner_motd,omitempty"` // banner motd TEXT: greeting after CLI login
-	BannerOff     bool                `json:"banner_off,omitempty"`  // no banner motd: no greeting (by default, a line with the version)
-	SecProfiles   []*SecProfile       `json:"sec_profiles,omitempty"`
-	FilterMaps    []*FilterMap        `json:"filter_maps,omitempty"` // filter-map ipv4 (access lists for transit traffic)
-	Security      string              `json:"security,omitempty"`    // "" means the default profile, "none" or a profile number
-	Domain        string              `json:"domain,omitempty"`
-	Timezone      string              `json:"timezone,omitempty"`
-	AutosaveMin   int                 `json:"autosave_min,omitempty"`  // autosave period in minutes (0 means AutosaveDefaultMin)
-	AutosaveKeep  int                 `json:"autosave_keep,omitempty"` // how many autosave copies to keep (0 means default)
-	AutosaveOn    bool                `json:"autosave_on,omitempty"`   // autosave enabled by the autosave interval command (disabled by default)
-	PwEncrypt     bool                `json:"pw_encrypt,omitempty"`    // service password-encryption (passwords are stored hashed anyway)
-	Features      map[string]bool     `json:"features,omitempty"`      // enabled optional features (feature NAME)
-	AAALevel      int                 `json:"aaa_log_level,omitempty"` // aaa logging level 1-6 (0 means default, 3)
-	StartupKeep   int                 `json:"startup_keep,omitempty"`  // how many startup copies to keep (config-history feature)
-	NameServers   []string            `json:"name_servers,omitempty"`
-	NTPServers    []string            `json:"ntp_servers,omitempty"`
-	Users         []*User             `json:"users,omitempty"`
-	Ifaces        []*Iface            `json:"ifaces,omitempty"`
-	Ports         []*Port             `json:"ports,omitempty"`
-	Routes        []Route             `json:"routes,omitempty"`
-	NATPools      []*NATPool          `json:"nat_pools,omitempty"`
-	NATDyn        []*NATDyn           `json:"nat_dyn,omitempty"`
-	NATStatic     []*NATStatic        `json:"nat_static,omitempty"`
-	IPPools       []*IPPool           `json:"ip_pools,omitempty"`
-	DHCP          []*DHCPServer       `json:"dhcp,omitempty"`
-	OSPF          *OSPF               `json:"ospf,omitempty"`
-	IPsecIKE      bool                `json:"ipsec_ike,omitempty"`           // crypto-ipsec ike enable
-	IPsecProfiles []*IPsecProfile     `json:"ipsec_profiles,omitempty"`      // crypto-ipsec profile NAME ike-v1|ike-v2
-	CryptoMaps    []*CryptoMap        `json:"crypto_maps,omitempty"`         // crypto-map NAME SEQ
-	PFLists       []*PolicyFilterList `json:"policy_filter_lists,omitempty"` // policy-filter-list N ...
-	PrefixLists   []*PrefixList       `json:"prefix_lists,omitempty"`        // ip prefix-list NAME ...
-	PrefixNoSeq   bool                `json:"prefix_no_seq,omitempty"`       // no ip prefix-list sequence-number
-	RouteMaps     []*RouteMapEntry    `json:"route_maps,omitempty"`          // route-map NAME permit|deny SEQ
+	Hostname        string              `json:"hostname"`
+	EnablePass      string              `json:"enable_pass,omitempty"` // hash of the enable-mode password (the plaintext password is not stored)
+	BannerMotd      string              `json:"banner_motd,omitempty"` // banner motd TEXT: greeting after CLI login
+	BannerOff       bool                `json:"banner_off,omitempty"`  // no banner motd: no greeting (by default, a line with the version)
+	SecProfiles     []*SecProfile       `json:"sec_profiles,omitempty"`
+	FilterMaps      []*FilterMap        `json:"filter_maps,omitempty"` // filter-map ipv4 (access lists for transit traffic)
+	Security        string              `json:"security,omitempty"`    // "" means the default profile, "none" or a profile number
+	Domain          string              `json:"domain,omitempty"`
+	Timezone        string              `json:"timezone,omitempty"`
+	AutosaveMin     int                 `json:"autosave_min,omitempty"`  // autosave period in minutes (0 means AutosaveDefaultMin)
+	AutosaveKeep    int                 `json:"autosave_keep,omitempty"` // how many autosave copies to keep (0 means default)
+	AutosaveOn      bool                `json:"autosave_on,omitempty"`   // autosave enabled by the autosave interval command (disabled by default)
+	PwEncrypt       bool                `json:"pw_encrypt,omitempty"`    // service password-encryption (passwords are stored hashed anyway)
+	Features        map[string]bool     `json:"features,omitempty"`      // enabled optional features (feature NAME)
+	AAALevel        int                 `json:"aaa_log_level,omitempty"` // aaa logging level 1-6 (0 means default, 3)
+	StartupKeep     int                 `json:"startup_keep,omitempty"`  // how many startup copies to keep (config-history feature)
+	NameServers     []string            `json:"name_servers,omitempty"`
+	NTPServers      []string            `json:"ntp_servers,omitempty"`
+	Users           []*User             `json:"users,omitempty"`
+	Ifaces          []*Iface            `json:"ifaces,omitempty"`
+	Ports           []*Port             `json:"ports,omitempty"`
+	Routes          []Route             `json:"routes,omitempty"`
+	ServicePolicies []*ServicePolicy    `json:"service_policies,omitempty"`
+	NATPools        []*NATPool          `json:"nat_pools,omitempty"`
+	NATDyn          []*NATDyn           `json:"nat_dyn,omitempty"`
+	NATStatic       []*NATStatic        `json:"nat_static,omitempty"`
+	IPPools         []*IPPool           `json:"ip_pools,omitempty"`
+	DHCP            []*DHCPServer       `json:"dhcp,omitempty"`
+	OSPF            *OSPF               `json:"ospf,omitempty"`
+	IPsecIKE        bool                `json:"ipsec_ike,omitempty"`           // crypto-ipsec ike enable
+	IPsecProfiles   []*IPsecProfile     `json:"ipsec_profiles,omitempty"`      // crypto-ipsec profile NAME ike-v1|ike-v2
+	CryptoMaps      []*CryptoMap        `json:"crypto_maps,omitempty"`         // crypto-map NAME SEQ
+	PFLists         []*PolicyFilterList `json:"policy_filter_lists,omitempty"` // policy-filter-list N ...
+	PrefixLists     []*PrefixList       `json:"prefix_lists,omitempty"`        // ip prefix-list NAME ...
+	PrefixNoSeq     bool                `json:"prefix_no_seq,omitempty"`       // no ip prefix-list sequence-number
+	RouteMaps       []*RouteMapEntry    `json:"route_maps,omitempty"`          // route-map NAME permit|deny SEQ
 }
 
 // AutosaveDefaultMin is the autosave period if none is set (autosave is off until enabled by the autosave interval command).
@@ -241,6 +250,14 @@ func (c *Config) FindIface(n string) *Iface {
 }
 func (c *Config) FindPort(n string) *Port {
 	for _, p := range c.Ports {
+		if p.Name == n {
+			return p
+		}
+	}
+	return nil
+}
+func (c *Config) FindServicePolicy(n string) *ServicePolicy {
+	for _, p := range c.ServicePolicies {
 		if p.Name == n {
 			return p
 		}
@@ -529,6 +546,14 @@ func (c *Config) Render() string {
 		}
 		sep()
 	}
+	for _, p := range c.ServicePolicies {
+		w("service-policy %s", p.Name)
+		if p.BandwidthUnit != "" && p.BandwidthValue > 0 {
+			w(" bandwidth %s %d", p.BandwidthUnit, p.BandwidthValue)
+		}
+		w("exit")
+		sep()
+	}
 	for _, i := range c.Ifaces {
 		w("interface %s", i.Name)
 		if i.Desc != "" {
@@ -594,6 +619,12 @@ func (c *Config) Render() string {
 			}
 			if s.Connect != "" {
 				w("  connect ip interface %s", s.Connect)
+			}
+			if s.PolicyIn != "" {
+				w("  service-policy %s in", s.PolicyIn)
+			}
+			if s.PolicyOut != "" {
+				w("  service-policy %s out", s.PolicyOut)
 			}
 		}
 		sep()

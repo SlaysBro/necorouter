@@ -45,7 +45,7 @@ func featureNode() *Node {
 	}
 	return K("feature", "Enable an optional feature",
 		feat("config-history", "Keep copies of startup-config and tune the autosave history of running-config"),
-		feat("config-manage", "Copy between files, compare and delete saved configuration files"),
+		feat("config-manage", "Copy ordinary files, compare and delete saved configuration files; crash-config remains available"),
 		feat("config-journal", "Log configuration operations: who, when, what"),
 		feat("ssh-copy", "Copy configuration to and from other devices over scp and sftp"),
 	)
@@ -167,14 +167,20 @@ func cmdWriteFile(s *Session, v []string) error {
 	return do(s)
 }
 
-// copyKids: copy file NAME startup-config, the other pairs — with service config-manage.
+// copyKids: crash-config is a built-in recovery file; ordinary file-to-running and startup-to-running copies need config-manage.
 func copyKids() []*Node {
 	manage := featOn("config-manage")
+	crashFileSource := func(name string) *Node {
+		return K(name, "Use the crash recovery configuration as the source",
+			K("startup-config", "Replace startup-config with this file").R(copyHandler("startup", name)),
+			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", name)))
+	}
 	file := K("file", "Copy a saved configuration file",
 		A(KWord, "FILENAME", "File name, startup, crash or a name from 'show files config'",
 			K("startup-config", "Replace startup-config with this file").R(copyHandler("startup", "")),
 			K("startup", "Replace startup-config with this file",
 				K("config", "Replace startup-config with this file").R(copyHandler("startup", ""))),
+			crashFileSource("crash"), crashFileSource("crash-config"),
 			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", "")).When(manage)))
 	startup := K("startup-config", "Copy from the startup configuration",
 		K("running-config", "Replace the running configuration with startup-config and apply it").R(copyHandler("running", "startup")).When(manage),
@@ -182,7 +188,7 @@ func copyKids() []*Node {
 	startup.Kids = append(startup.Kids, exportNodes()...)
 	crash := K("crash-config", "Copy from the configuration saved after an abnormal shutdown",
 		K("startup-config", "Replace startup-config with crash-config").R(copyHandler("startup", "crash")),
-		K("running-config", "Replace the running configuration with crash-config and apply it").R(copyHandler("running", "crash"))).When(manage)
+		K("running-config", "Replace the running configuration with crash-config and apply it").R(copyHandler("running", "crash")))
 	return append([]*Node{file, startup, crash}, transferNodes()...)
 }
 
@@ -241,11 +247,18 @@ func copyHandler(dst, fixed string) Handler {
 
 // deleteNode: delete backup storage NAME|*, delete config file NAME (service config-manage).
 func deleteNode() *Node {
+	manage := featOn("config-manage")
+	deleteCrash := func(name string) *Node {
+		return K(name, "Delete the crash recovery configuration").R(func(s *Session, _ []string) error {
+			return cmdDeleteConfig(s, []string{"crash"})
+		})
+	}
 	return K("delete", "Delete a file",
 		backupDeleteNode(),
 		K("config", "Delete a saved configuration file",
 			K("file", "Delete a configuration file or a history copy",
-				A(KWord, "FILENAME", "Name from 'show files config' or 'show config history'").R(cmdDeleteConfig))).When(featOn("config-manage")))
+				deleteCrash("crash"), deleteCrash("crash-config"),
+				A(KWord, "FILENAME", "Name from 'show files config' or 'show config history'").R(cmdDeleteConfig).When(manage))))
 }
 
 func cmdDeleteConfig(s *Session, v []string) error {

@@ -1,6 +1,7 @@
 package svc
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -8,11 +9,10 @@ import (
 	"strings"
 
 	"necorouter/internal/config"
-	"necorouter/internal/nl"
 )
 
-// netSvc manages links (vlan/gre/dummy), addresses, routes and
-// packet forwarding via netlink. It touches only what it created itself (State).
+// netSvc manages links, addresses and routes through iproute2 and only removes
+// resources recorded in State.
 type netSvc struct{}
 
 func (*netSvc) Name() string { return "network" }
@@ -22,19 +22,42 @@ func linkExists(dev string) bool {
 	return err == nil
 }
 
+func ipAddrSet(dev string) map[string]bool {
+	out := map[string]bool{}
+	b, err := run("ip", "-j", "address", "show", "dev", dev)
+	if err != nil {
+		return out
+	}
+	var links []struct {
+		AddrInfo []struct {
+			Family    string `json:"family"`
+			Local     string `json:"local"`
+			PrefixLen int    `json:"prefixlen"`
+		} `json:"addr_info"`
+	}
+	if json.Unmarshal([]byte(b), &links) != nil {
+		return out
+	}
+	for _, l := range links {
+		for _, a := range l.AddrInfo {
+			if a.Family == "inet" {
+				out[fmt.Sprintf("%s/%d", a.Local, a.PrefixLen)] = true
+			}
+		}
+	}
+	return out
+}
+
 func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 	st := env.St
 	if len(c.Ifaces)+len(c.Routes) == 0 && len(st.Links)+len(st.Addrs)+len(st.Routes) == 0 {
-		return nil, nil // router not configured: do nothing and do not open sockets
+		return nil, nil
 	}
-	n, err := nl.Open()
-	if err != nil {
-		return nil, err
+	if !have("ip") {
+		return nil, fmt.Errorf("iproute2 is required: ip command not found")
 	}
-	defer n.Close()
 	var warns []string
-
-	links := map[string]string{} // dev -> spec
+	links := map[string]string{}
 	addrs := map[string][]string{}
 	mtus := map[string]int{}
 	down := map[string]bool{}
@@ -54,10 +77,10 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 		case strings.HasPrefix(i.Name, "loopback"):
 			links[dev] = "dummy"
 		default:
-			p, s := c.Binding(i.Name)
-			if s != nil && s.Encap == "dot1q" {
+			p, si := c.Binding(i.Name)
+			if si != nil && si.Encap == "dot1q" {
 				nic := env.Ports.NIC(p.Name)
-				links[dev] = fmt.Sprintf("vlan:%s:%d", nic, s.VLAN)
+				links[dev] = fmt.Sprintf("vlan:%s:%d", nic, si.VLAN)
 				up[nic] = true
 			}
 		}
@@ -71,11 +94,9 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 			up[dev] = true
 		}
 	}
-
-	// links that no longer exist or whose parameters changed
 	for dev, spec := range st.Links {
 		if links[dev] != spec {
-			_ = n.DelLink(dev)
+			_, _ = run("ip", "link", "del", "dev", dev)
 			delete(st.Links, dev)
 			delete(st.Addrs, dev)
 		}
@@ -86,35 +107,36 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 	}
 	sort.Strings(devs)
 	for _, dev := range devs {
-		spec := links[dev]
 		if linkExists(dev) {
 			continue
 		}
-		f := strings.Split(spec, ":")
-		var err error
+		f := strings.Split(links[dev], ":")
+		var args []string
 		switch f[0] {
 		case "vlan":
 			if f[1] == "" || !linkExists(f[1]) {
 				warns = append(warns, fmt.Sprintf("port NIC %q for %s does not exist", f[1], dev))
 				continue
 			}
-			_ = n.SetUp(f[1], true)
-			var id int
-			fmt.Sscan(f[2], &id)
-			err = n.AddVLAN(dev, f[1], id)
+			_, _ = run("ip", "link", "set", "dev", f[1], "up")
+			args = []string{"link", "add", "link", f[1], "name", dev, "type", "vlan", "id", f[2]}
 		case "gre":
-			err = n.AddGRE(dev, f[1], f[2], 64)
+			args = []string{"tunnel", "add", dev, "mode", "gre", "local", f[1], "remote", f[2], "ttl", "64"}
 		case "dummy":
-			err = n.AddDummy(dev)
+			args = []string{"link", "add", "dev", dev, "type", "dummy"}
 		}
-		if err != nil {
-			warns = append(warns, err.Error())
-			continue
+		if len(args) > 0 {
+			if _, err := run("ip", args...); err != nil {
+				warns = append(warns, err.Error())
+				continue
+			}
+			st.Links[dev] = links[dev]
+			if f[0] == "gre" {
+				_, _ = run("ip", "link", "set", "dev", dev, "multicast", "on")
+			}
 		}
-		st.Links[dev] = spec
 	}
 
-	// addresses
 	known := map[string]bool{}
 	for d := range addrs {
 		known[d] = true
@@ -127,19 +149,19 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 			delete(st.Addrs, dev)
 			continue
 		}
-		have := nl.Addrs(dev)
+		have := ipAddrSet(dev)
 		want := map[string]bool{}
 		for _, a := range addrs[dev] {
 			want[a] = true
 			if !have[a] {
-				if err := n.AddAddr(dev, a); err != nil {
+				if _, err := run("ip", "address", "add", a, "dev", dev); err != nil {
 					warns = append(warns, err.Error())
 				}
 			}
 		}
 		for _, a := range st.Addrs[dev] {
 			if !want[a] && have[a] {
-				_ = n.DelAddr(dev, a)
+				_, _ = run("ip", "address", "del", a, "dev", dev)
 			}
 		}
 		if len(addrs[dev]) > 0 {
@@ -148,26 +170,25 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 			delete(st.Addrs, dev)
 		}
 	}
-	for dev, m := range mtus {
+	for dev, mtu := range mtus {
 		if linkExists(dev) {
-			_ = n.SetMTU(dev, m)
+			_, _ = run("ip", "link", "set", "dev", dev, "mtu", fmt.Sprint(mtu))
 		}
 	}
 	for dev := range up {
 		if linkExists(dev) && !down[dev] {
-			_ = n.SetUp(dev, true)
+			_, _ = run("ip", "link", "set", "dev", dev, "up")
 		}
 	}
 	for dev := range down {
 		if linkExists(dev) {
-			_ = n.SetUp(dev, false)
+			_, _ = run("ip", "link", "set", "dev", dev, "down")
 		}
 	}
 	if len(c.Ifaces) > 0 {
 		_ = os.WriteFile("/proc/sys/net/ipv4/ip_forward", []byte("1"), 0o644)
 	}
 
-	// static routes
 	wantR := map[string]bool{}
 	for _, r := range c.Routes {
 		wantR[r.Prefix+" "+r.NextHop] = true
@@ -175,12 +196,21 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 	for _, k := range st.Routes {
 		if !wantR[k] {
 			f := strings.Fields(k)
-			_ = n.DelRoute(f[0], f[1])
+			if len(f) > 0 {
+				args := append([]string{"route", "del", f[0]}, routeVia(f[1:])...)
+				args = append(args, "proto", "static")
+				_, _ = run("ip", args...)
+			}
 		}
 	}
 	var keep []string
 	for _, r := range c.Routes {
-		if err := n.ReplaceRoute(r.Prefix, r.NextHop); err != nil {
+		args := []string{"route", "replace", r.Prefix}
+		if r.NextHop != "" {
+			args = append(args, "via", r.NextHop)
+		}
+		args = append(args, "proto", "static")
+		if _, err := run("ip", args...); err != nil {
 			warns = append(warns, fmt.Sprintf("route %s via %s: %v", r.Prefix, r.NextHop, err))
 			continue
 		}
@@ -190,32 +220,41 @@ func (*netSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 	return warns, nil
 }
 
+func routeVia(fields []string) []string {
+	if len(fields) >= 2 && fields[0] != "" {
+		return []string{"via", fields[0]}
+	}
+	return nil
+}
+
 func (*netSvc) Stop(env *Env) error {
 	st := env.St
 	if len(st.Links)+len(st.Addrs)+len(st.Routes) == 0 {
 		return nil
 	}
-	n, err := nl.Open()
-	if err != nil {
-		return err
+	if !have("ip") {
+		return fmt.Errorf("iproute2 is required: ip command not found")
 	}
-	defer n.Close()
 	for _, k := range st.Routes {
 		f := strings.Fields(k)
-		_ = n.DelRoute(f[0], f[1])
+		if len(f) > 0 {
+			args := append([]string{"route", "del", f[0]}, routeVia(f[1:])...)
+			args = append(args, "proto", "static")
+			_, _ = run("ip", args...)
+		}
 	}
 	st.Routes = nil
 	for dev, as := range st.Addrs {
 		if st.Links[dev] != "" {
-			continue // removed together with the link
+			continue
 		}
 		for _, a := range as {
-			_ = n.DelAddr(dev, a)
+			_, _ = run("ip", "address", "del", a, "dev", dev)
 		}
 	}
 	st.Addrs = map[string][]string{}
 	for dev := range st.Links {
-		_ = n.DelLink(dev)
+		_, _ = run("ip", "link", "del", "dev", dev)
 	}
 	st.Links = map[string]string{}
 	return nil
@@ -230,4 +269,25 @@ func (*netSvc) Status(env *Env) string {
 		return "idle"
 	}
 	return fmt.Sprintf("%d address(es), %d link(s), %d route(s)", a, len(env.St.Links), len(env.St.Routes))
+}
+
+// ipRoute is one main-table route returned by iproute2 JSON output.
+type ipRoute struct {
+	Dst      string `json:"dst"`
+	Gateway  string `json:"gateway"`
+	Dev      string `json:"dev"`
+	Protocol string `json:"protocol"`
+	Metric   uint32 `json:"metric"`
+}
+
+func systemRoutes() ([]ipRoute, error) {
+	out, err := run("ip", "-j", "-4", "route", "show", "table", "main")
+	if err != nil {
+		return nil, err
+	}
+	var routes []ipRoute
+	if err := json.Unmarshal([]byte(out), &routes); err != nil {
+		return nil, fmt.Errorf("decode ip route output: %w", err)
+	}
+	return routes, nil
 }

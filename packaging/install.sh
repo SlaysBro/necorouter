@@ -4,7 +4,6 @@
 #   sh install.sh [--version TAG | --pre | --local | --build | --bin PATH] [--no-enable] [--no-deps]
 #                 [--uninstall [--purge]]
 #   default: download the latest stable release from GitHub (repository in source.conf)
-#   sh uninstall.sh [--purge]        same as install.sh --uninstall
 #
 # Login: standard Linux (PAM). The router creates Linux accounts with the necorouter-shell shell;
 # root and foreign accounts are not touched.
@@ -338,20 +337,20 @@ if [ $DEPS = 1 ]; then
 		debian)
 			export DEBIAN_FRONTEND=noninteractive
 			apt-get update -qq || true
-			for p in openssh-server openssh-client passwd nftables dnsmasq-base frr chrony tzdata iputils-ping traceroute strongswan-charon strongswan-swanctl; do
+			for p in openssh-server openssh-client passwd nftables dnsmasq-base frr chrony tzdata iputils-ping traceroute iproute2 strongswan-charon strongswan-swanctl; do
 				apt-get install -y -qq --no-install-recommends "$p" >/dev/null 2>&1 || echo "WARN: package $p not installed"
 			done ;;
 		rhel)
 			PM=$(command -v dnf || command -v yum)
-			for p in openssh-server openssh-clients shadow-utils nftables dnsmasq frr chrony tzdata iputils traceroute strongswan; do
+			for p in openssh-server openssh-clients shadow-utils nftables dnsmasq frr chrony tzdata iputils traceroute iproute strongswan; do
 				$PM install -y -q "$p" >/dev/null 2>&1 || echo "WARN: package $p not installed (frr may need EPEL/FRR repo)"
 			done ;;
 		alpine)
 			apk update -q || true
-			for p in openssh openssh-client-default nftables dnsmasq frr chrony tzdata iputils traceroute shadow strongswan; do
+			for p in openssh openssh-client-default nftables dnsmasq frr chrony tzdata iputils traceroute iproute2 shadow strongswan; do
 				apk add -q "$p" >/dev/null 2>&1 || echo "WARN: package $p not installed"
 			done ;;
-		*) echo "WARN: unknown distribution; install manually: sshd, nftables, dnsmasq, frr, chrony, tzdata, strongswan" ;;
+		*) echo "WARN: unknown distribution; install manually: sshd, iproute2, nftables, dnsmasq, frr, chrony, tzdata, strongswan" ;;
 	esac
 	# the router runs its own dnsmasq/frr/chrony/charon instances, so system services are not needed
 	for s in dnsmasq frr chronyd chrony strongswan strongswan-starter strongswan-swanctl; do svc_disable "$s"; done
@@ -377,11 +376,12 @@ fi
 SHARE=/usr/local/share/necorouter/packaging
 if [ "$(cd "$HERE" && pwd)" != "$SHARE" ]; then
 	mkdir -p $SHARE/etc/necorouter
-	for f in install.sh uninstall.sh source.conf DEPENDENCIES necorouter.service necorouter.openrc; do
+	for f in install.sh source.conf DEPENDENCIES necorouter.service necorouter.openrc; do
 		[ -f "$HERE/$f" ] && cp "$HERE/$f" $SHARE/$f
 	done
 	cp "$HERE/etc/necorouter/banner" $SHARE/etc/necorouter/banner 2>/dev/null || true
 fi
+rm -f "$SHARE/uninstall.sh"
 # sudo/su on CentOS and others restrict PATH (secure_path) without /usr/local/bin
 for l in necorouter; do
 	[ -e /usr/bin/$l ] || ln -s $BINDIR/$l /usr/bin/$l 2>/dev/null || true

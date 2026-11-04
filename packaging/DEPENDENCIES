@@ -23,6 +23,7 @@ OSPF                               frr                         frr (EPEL/reposit
 NTP client                         chrony                      chrony                   chrony
 Time zones                         tzdata                      tzdata                   tzdata
 ping, traceroute                   iputils-ping traceroute     iputils traceroute       iputils traceroute
+network / traffic shaping         iproute2 (ip, tc, IFB)     iproute (ip, tc, IFB)    iproute2 (ip, tc, IFB)
 IPsec (IKEv1/IKEv2)          strongswan-swanctl          strongswan               strongswan
                                    strongswan-charon
 
@@ -35,3 +36,7 @@ Notes
   (or strongswan-starter / strongswan-swanctl, depending on the distribution).
 - The charon and swanctl binaries are required. Search directories: PATH, /usr/lib/ipsec, /usr/libexec/ipsec,
   /usr/lib/strongswan, /usr/libexec/strongswan, /usr/sbin, /sbin, /usr/local/sbin.
+- Network configuration uses `ip` from the listed iproute package for links, addresses, routes and IFB. Traffic
+  policies use `tc` from the same package and the Linux CAKE qdisc (`sch_cake`); kernel support depends on the
+  distribution and kernel build. Shaping is applied to a service-instance only when a service-policy with a
+  bandwidth is attached in the `in` or `out` direction.

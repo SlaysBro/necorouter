@@ -397,7 +397,7 @@ func buildTrees() map[string][]*Node {
 	switchers := []*Node{iface, port, router, username, do, clearN, exitN, end}
 	historyCfg := historyCfgNodes()
 	filterMap := fmapConfigNode()
-	t["config"] = append([]*Node{hostname, ipCfg, ntp, serviceNode(), featureNode(), username, iface, port, router, dhcpSrv, filterMap, bannerConfigNode(), aaaNode(), do, clearN, exitN, end}, historyCfg...)
+	t["config"] = append([]*Node{hostname, ipCfg, ntp, serviceNode(), featureNode(), username, iface, port, router, dhcpSrv, filterMap, bannerConfigNode(), aaaNode(), servicePolicyNode(), do, clearN, exitN, end}, historyCfg...)
 	t["config"] = append(t["config"], secCfg...)
 	t["config"] = append(t["config"], epw...)
 	t["config"] = append(t["config"], cryptoNodes()...)
@@ -414,7 +414,8 @@ func buildTrees() map[string][]*Node {
 
 	t["if"] = append(append(ifaceTree(), fmapIfaceNode()), switchers...)
 	t["port"] = append(portTree(), switchers...)
-	t["si"] = append(append(siTree(), portTree()[1]), switchers...)
+	t["si"] = append(append(append(siTree(), portTree()[1]), bindServicePolicyNode()), switchers...)
+	t["qospolicy"] = append(servicePolicyTree(), switchers...)
 	t["ospf"] = append(ospfTree(), switchers...)
 	t["user"] = append(userTree(), switchers...)
 	t["dhcp"] = append(dhcpTree(), []*Node{iface, port, router, username, do, clearN, exitN, end}...)
@@ -1254,6 +1255,7 @@ func showTree() *Node {
 			}
 			return nil
 		}),
+		K("service-policy", "Show configured traffic service-policies").R(func(s *Session, _ []string) error { return showServicePolicy(s) }),
 		K("ip", "IP information",
 			K("interface", "IP interface status",
 				K("brief", "Brief summary of IP status").R(func(s *Session, _ []string) error {

@@ -23,6 +23,7 @@ The router itself is written in **Go** using only the standard library.
 
 - Interface addresses, static routes, DNS, ports and VLANs (`port teN`, service instances, `dot1q`), GRE tunnels.
 - NAT: dynamic NAT with overload, and static destination NAT with optional hairpin.
+- Bufferbloat control using service-policy bandwidth commands and Linux CAKE for WAN download and upload.
 - DHCP server (dnsmasq), NTP client (chrony), OSPF (FRR).
 - IPsec: IKEv1 and IKEv2 with pre-shared keys, GRE over IPsec (strongSwan).
 - Route maps, prefix lists and policy filter lists for routing policy.
@@ -43,6 +44,7 @@ The router itself is written in **Go** using only the standard library.
 |---|---|
 | Login and SSH | Linux accounts (PAM), OpenSSH |
 | NAT, filter-map, security profiles | nftables |
+| Bufferbloat control | `tc` CAKE qdisc and IFB via service policies |
 | DHCP and DNS | dnsmasq |
 | OSPF | FRR (zebra, ospfd) |
 | NTP | chrony |
@@ -50,6 +52,31 @@ The router itself is written in **Go** using only the standard library.
 | Ping and traceroute | iputils, traceroute |
 
 Packages for each distribution are listed in [`packaging/DEPENDENCIES`](packaging/DEPENDENCIES).
+
+## Traffic shaping and bufferbloat
+
+When a link is saturated, queues can increase ping latency. Configure service policies on the WAN service-instance. Start with limits around 90–95% of measured sustained speeds so CAKE can keep the bottleneck queue on the router. The `in` policy shapes downloads through IFB; `out` shapes uploads on the WAN egress. Linux kernel support for CAKE (`sch_cake`) is required.
+
+For a measured 100/10 Mbps link, start around 95/9 Mbps:
+
+    configure terminal
+    service-policy WAN-DOWN
+     bandwidth mbps 95
+    exit
+    service-policy WAN-UP
+     bandwidth mbps 9
+    exit
+    port te0
+     service-instance wan
+      encapsulation untagged
+      connect ip interface wan
+      service-policy WAN-DOWN in
+      service-policy WAN-UP out
+    end
+    write
+    show service-policy
+
+Use your actual port and service-instance names. The rates are explicit; the router does not infer your provider's sustained link speed. The CLI follows the `service-policy` / `bandwidth` / `service-instance` syntax; CAKE is the Linux implementation used underneath for active queue management.
 
 ## Supported systems
 

@@ -40,13 +40,13 @@ host: dist/necorouter
 dist/necorouter: | dist
 	$(GOBUILD) -o $@ ./cmd/necorouter
 
-# test utilities and tests tagged nltest (veth pairs are needed only by the test bench)
+# test utilities and tests tagged iproute2test (veth pairs are needed only by the test bench)
 dist/mkveth: | dist
-	CGO_ENABLED=0 go build -tags nltest -o $@ ./test/mkveth
+	CGO_ENABLED=0 go build -tags iproute2test -o $@ ./test/mkveth
 
 test: host dist/mkveth
-	go vet -tags nltest ./...
-	go test -tags nltest ./...
+	go vet -tags iproute2test ./...
+	go test -tags iproute2test ./...
 	unshare -n -u -m python3 test/pty_cli.py
 	unshare -n -u -m python3 test/pty_ping.py
 	unshare -n -u -m python3 test/pty_mge.py

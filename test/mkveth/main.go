@@ -1,4 +1,4 @@
-//go:build nltest
+//go:build iproute2test
 
 // mkveth creates a veth pair and brings lo up (test bench tool).
 package main
@@ -6,28 +6,24 @@ package main
 import (
 	"fmt"
 	"os"
-
-	"necorouter/internal/nl"
+	"os/exec"
 )
+
+func ip(args ...string) error {
+	out, err := exec.Command("ip", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ip %v: %w: %s", args, err, out)
+	}
+	return nil
+}
 
 func main() {
 	if len(os.Args) != 3 {
 		fmt.Fprintln(os.Stderr, "usage: mkveth A B")
 		os.Exit(2)
 	}
-	c, err := nl.Open()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	defer c.Close()
-	_ = c.SetUp("lo", true)
-	for _, f := range []func() error{
-		func() error { return c.AddVeth(os.Args[1], os.Args[2]) },
-		func() error { return c.SetUp(os.Args[1], true) },
-		func() error { return c.SetUp(os.Args[2], true) },
-	} {
-		if err := f(); err != nil {
+	for _, args := range [][]string{{"link", "set", "lo", "up"}, {"link", "add", os.Args[1], "type", "veth", "peer", "name", os.Args[2]}, {"link", "set", "dev", os.Args[1], "up"}, {"link", "set", "dev", os.Args[2], "up"}} {
+		if err := ip(args...); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
