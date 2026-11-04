@@ -180,8 +180,8 @@ func copyKids() []*Node {
 			K("startup-config", "Replace startup-config with this file").R(copyHandler("startup", "")),
 			K("startup", "Replace startup-config with this file",
 				K("config", "Replace startup-config with this file").R(copyHandler("startup", ""))),
-			crashFileSource("crash"), crashFileSource("crash-config"),
-			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", "")).When(manage)))
+			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", "")).When(manage)),
+		crashFileSource("crash"), crashFileSource("crash-config"))
 	startup := K("startup-config", "Copy from the startup configuration",
 		K("running-config", "Replace the running configuration with startup-config and apply it").R(copyHandler("running", "startup")).When(manage),
 		backupCopyNode())
