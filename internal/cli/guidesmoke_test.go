@@ -28,7 +28,7 @@ func TestGuideConfigLinesAccepted(t *testing.T) {
 		"dhcp-server 1", "pool lan 1", "mask 29", "gateway 192.168.0.9", "dns 192.168.0.2", "domain-search au-team.irpo", "exit",
 		"interface v100", "dhcp-server 1", "exit",
 		"ntp timezone utc+3", "ntp server 172.16.1.1", "ntp synchronize",
-		"username net_admin role admin password P@ssw0rd",
+		"username net_admin", "role admin",
 	}
 	for _, l := range lines {
 		if out := runCmd(s, l); strings.Contains(out, "% ") && !strings.Contains(out, "NTP client is not running") && !strings.Contains(out, "access denied") {

@@ -288,42 +288,8 @@ func buildTrees() map[string][]*Node {
 			}).R(func(s *Session, v []string) error { s.cfg().Timezone = strings.ToLower(v[0]); return nil })).
 			N(func(s *Session, _ []string) error { s.cfg().Timezone = ""; return nil }))
 
-	// username NAME role ROLE password PW — a single line, without entering user mode
-	ensureUser := func(s *Session, name string) *config.User {
-		c := s.cfg()
-		if u := c.FindUser(name); u != nil {
-			return u
-		}
-		u := &config.User{Name: name}
-		c.Users = append(c.Users, u)
-		return u
-	}
-	// v: [name] or [name, role], the last element is the password
-	uPass := K("password", "Set the account password (kept only in the Linux account, not in the configuration)",
-		A(KRest, "PASSWORD", "Password (any text up to the end of the line)").R(func(s *Session, v []string) error {
-			if len(v) == 3 {
-				if !roleOK(v[1]) {
-					return fmt.Errorf("role must be admin, noc or helpdesk")
-				}
-				ensureUser(s, v[0]).Role = v[1]
-			}
-			ensureUser(s, v[0])
-			if s.noApply {
-				return nil
-			}
-			return s.R.Mgr.SetPassword(v[0], v[len(v)-1])
-		}))
-	uRole := K("role", "Set the user role",
-		A(KWord, "ROLE", "Role: admin (full privileges), noc or helpdesk", uPass).Cmp(func(*Session) []string { return []string{"admin", "noc", "helpdesk"} }).
-			R(func(s *Session, v []string) error {
-				if !roleOK(v[1]) {
-					return fmt.Errorf("role must be admin, noc or helpdesk")
-				}
-				ensureUser(s, v[0]).Role = v[1]
-				return nil
-			}))
 	username := K("username", "Establish a user name",
-		A(KWord, "NAME", "User name (letters, digits, _ . : / -)", uRole, uPass).Chk(nameOK).Cmp(userNames).R(func(s *Session, v []string) error {
+		A(KWord, "NAME", "User name (letters, digits, _ . : / -)").Chk(nameOK).Cmp(userNames).R(func(s *Session, v []string) error {
 			c := s.cfg()
 			if c.FindUser(v[0]) == nil {
 				c.Users = append(c.Users, &config.User{Name: v[0]})

@@ -6,25 +6,32 @@ import (
 )
 
 // Commands from the demo-exam guide that were missing from the command tree.
-func TestGuideOneLinerUsername(t *testing.T) {
+func TestUsernameRoleAndPasswordRequireUserMode(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
 	runCmd(s, "configure terminal")
-	if out := runCmd(s, "username net_admin role noc"); strings.Contains(out, "%") {
-		t.Fatalf("one-liner rejected: %q", out)
+	for _, command := range []string{
+		"username net_admin role noc",
+		"username net_admin password Secret123",
+	} {
+		if out := runCmd(s, command); !strings.Contains(out, "%") {
+			t.Fatalf("one-line user configuration must be rejected: %q", out)
+		}
 	}
-	if u := r.Cfg.FindUser("net_admin"); u == nil || u.Role != "noc" {
-		t.Fatalf("user not created with role: %+v", u)
-	}
-	if !strings.HasSuffix(s.Prompt(), "(config)#") {
-		t.Fatalf("one-liner must not enter user mode, prompt %q", s.Prompt())
+	if u := r.Cfg.FindUser("net_admin"); u != nil {
+		t.Fatalf("rejected one-liner created user: %+v", u)
 	}
 	if out := runCmd(s, "username net_admin"); strings.Contains(out, "%") || !strings.HasSuffix(s.Prompt(), "(config-user)#") {
-		t.Fatalf("plain username must enter user mode: %q %q", out, s.Prompt())
+		t.Fatalf("username must enter user mode: %q %q", out, s.Prompt())
 	}
-	runCmd(s, "exit")
-	if h := s.Help("username net_admin "); !strings.Contains(h, "role") || !strings.Contains(h, "password") {
-		t.Fatalf("help: %q", h)
+	if out := runCmd(s, "role noc"); strings.Contains(out, "%") {
+		t.Fatalf("role command rejected in user mode: %q", out)
+	}
+	if u := r.Cfg.FindUser("net_admin"); u == nil || u.Role != "noc" {
+		t.Fatalf("user role not set in user mode: %+v", u)
+	}
+	if h := s.Help("password "); !strings.Contains(h, "PASSWORD") {
+		t.Fatalf("password command missing in user mode help: %q", h)
 	}
 }
 

@@ -6,7 +6,7 @@ A software router for Linux with a command-line interface in the style of commer
 It is a single Go binary that drives well-known Linux daemons (FRR, dnsmasq, chrony, nftables, strongSwan)
 from one configuration file.
 
-> **Status:** version 0.21, a learning and lab project. It covers the commands used in network-administration
+> **Status:** version 0.21.1, a learning and lab project. It covers the commands used in network-administration
 > exercises and exams. It is not a production router and has not been verified on real hardware for every feature.
 
 ## About the project
