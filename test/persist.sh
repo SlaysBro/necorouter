@@ -13,8 +13,8 @@ start
 $BIN shell <<'CLI' >/dev/null
 enable
 configure terminal
-hostname br-rtr
-ip domain-name au-team.irpo
+hostname example-2
+ip domain-name example.local
 username neto
  password P@ssw0rd
  role admin
@@ -44,7 +44,7 @@ dhcp-server 1
  mask 28
  gateway 192.168.3.1
  dns 192.168.100.2 8.8.8.8
- domain-name au-team.irpo
+ domain-name example.local
 exit
 ip nat pool LAN 192.168.3.1-192.168.3.14
 ip nat source dynamic inside-to-outside pool LAN overload interface isp

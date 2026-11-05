@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// Commands from the demo-exam guide that were missing from the command tree.
 func TestUsernameRoleAndPasswordRequireUserMode(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
@@ -41,10 +40,10 @@ func TestGuideDHCPDomainSearch(t *testing.T) {
 	runCmd(s, "configure terminal")
 	runCmd(s, "ip pool lan 192.168.0.10-192.168.0.20")
 	runCmd(s, "dhcp-server 1")
-	if out := runCmd(s, "domain-search au-team.irpo"); strings.Contains(out, "%") {
+	if out := runCmd(s, "domain-search example.local"); strings.Contains(out, "%") {
 		t.Fatalf("domain-search rejected: %q", out)
 	}
-	if !strings.Contains(r.Cfg.Render(), " domain-search au-team.irpo") || strings.Contains(r.Cfg.Render(), " domain-name au-team.irpo") {
+	if !strings.Contains(r.Cfg.Render(), " domain-search example.local") || strings.Contains(r.Cfg.Render(), " domain-name example.local") {
 		t.Fatalf("domain-search must be option 119 only:\n%s", r.Cfg.Render())
 	}
 	runCmd(s, "domain-name example.local")
@@ -52,7 +51,7 @@ func TestGuideDHCPDomainSearch(t *testing.T) {
 		t.Fatalf("domain-name rejected: %q", out)
 	}
 	rc := r.Cfg.Render()
-	if !strings.Contains(rc, " domain-name example.local") || !strings.Contains(rc, " domain-search au-team.irpo") {
+	if !strings.Contains(rc, " domain-name example.local") || !strings.Contains(rc, " domain-search example.local") {
 		t.Fatalf("both options must be kept separately:\n%s", rc)
 	}
 }

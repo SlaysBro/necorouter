@@ -76,7 +76,7 @@ For a measured 100/10 Mbps link, start around 95/9 Mbps:
     write
     show service-policy
 
-Use your actual port and service-instance names. The rates are explicit; the router does not infer your provider's sustained link speed. The CLI follows the `service-policy` / `bandwidth` / `service-instance` syntax; CAKE is the Linux implementation used underneath for active queue management.
+Use your actual port and service-instance names. The rates are explicit; the router does not infer your provider's sustained link speed. Configure `service-policy`, `bandwidth`, and `service-instance` commands; CAKE is the Linux implementation used underneath for active queue management.
 
 ## Supported systems
 

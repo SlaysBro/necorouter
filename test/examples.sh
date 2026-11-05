@@ -6,7 +6,7 @@ BIN=${1:-$ROOT/dist/necorouter}
 MKVETH=${2:-$ROOT/dist/mkveth}
 mount -t sysfs sysfs /sys
 N=0
-for ex in hq-rtr br-rtr; do N=$((N+1))
+for ex in example-1 example-2; do N=$((N+1))
   export NECOROUTER_ROOT=$(mktemp -d); chmod 755 $NECOROUTER_ROOT
   mkdir -p $NECOROUTER_ROOT/etc/necorouter
   $MKVETH veth${N}0 veth${N}1; $MKVETH veth${N}2 veth${N}3

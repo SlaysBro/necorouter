@@ -15,8 +15,8 @@ echo "=== scenario ==="
 $BIN shell <<'CLI'
 enable
 configure terminal
-hostname hq-rtr
-ip domain-name au-team.irpo
+hostname example-1
+ip domain-name example.local
 interface isp
  ip address 172.16.1.2/28
  ip nat outside
@@ -60,7 +60,7 @@ dhcp-server 1
  mask 28
  gateway 192.168.200.1
  dns 192.168.100.2
- domain-name au-team.irpo
+ domain-name example.local
 exit
 ip nat pool LOCAL 192.168.100.1-192.168.100.62,
 ip nat pool LOCAL 192.168.100.1-192.168.100.62

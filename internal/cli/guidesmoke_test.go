@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// Example configuration lines from the guide (HQ-RTR, BR-RTR): each must be accepted without syntax errors.
 func TestGuideConfigLinesAccepted(t *testing.T) {
 	r := newRouterWith(t, "ge0 eth0\nge1 eth1\nge2 eth2\n", false)
 	s := sessionOn(r, "root")
@@ -25,7 +24,7 @@ func TestGuideConfigLinesAccepted(t *testing.T) {
 		"ip ospf authentication message-digest", "ip ospf message-digest-key 1 md5 P@ssw0rd", "exit",
 		"router ospf 1", "network 10.10.10.0/30 area 0", "network 192.168.0.0/24 area 0",
 		"passive-interface default", "no passive-interface tunnel.0", "exit",
-		"dhcp-server 1", "pool lan 1", "mask 29", "gateway 192.168.0.9", "dns 192.168.0.2", "domain-search au-team.irpo", "exit",
+		"dhcp-server 1", "pool lan 1", "mask 29", "gateway 192.168.0.9", "dns 192.168.0.2", "domain-search example.local", "exit",
 		"interface v100", "dhcp-server 1", "exit",
 		"ntp timezone utc+3", "ntp server 172.16.1.1", "ntp synchronize",
 		"username net_admin", "role admin",

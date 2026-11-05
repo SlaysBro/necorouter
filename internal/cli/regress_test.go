@@ -77,22 +77,22 @@ port te1
 		" service-instance te1/vl100\n  encapsulation dot1q 100 exact\n  rewrite pop 1\n")
 }
 
-// Regression: ip nat source dynamic — all arguments (name, pool, overload X) are built from data.
+// Regression: ip nat source dynamic preserves the rule name, pool name, and overload target.
 func TestRenderNATDynamicAndStatic(t *testing.T) {
 	_, out := replay(t, `
-ip nat pool HQ-SRV 192.168.100.1-192.168.100.30
-ip nat pool BR 192.168.3.1-192.168.3.30
-ip nat source dynamic inside-to-outside pool HQ-SRV overload 172.16.1.2
+ip nat pool server-pool 192.168.100.1-192.168.100.30
+ip nat pool inside-pool 192.168.3.1-192.168.3.30
+ip nat source dynamic inside-to-outside pool server-pool overload 172.16.1.2
 interface isp
  ip address 172.16.4.2/28
-ip nat source dynamic lan pool BR overload interface isp
+ip nat source dynamic lan pool inside-pool overload interface isp
 ip nat source static tcp 192.168.100.2 8080 172.16.1.2 8080
 ip nat source static 10.0.0.1 10.0.0.2
 `)
 	mustContain(t, out,
-		"ip nat pool HQ-SRV 192.168.100.1-192.168.100.30\n",
-		"ip nat source dynamic inside-to-outside pool HQ-SRV overload 172.16.1.2\n",
-		"ip nat source dynamic lan pool BR overload interface isp\n",
+		"ip nat pool server-pool 192.168.100.1-192.168.100.30\n",
+		"ip nat source dynamic inside-to-outside pool server-pool overload 172.16.1.2\n",
+		"ip nat source dynamic lan pool inside-pool overload interface isp\n",
 		"ip nat source static tcp 192.168.100.2 8080 172.16.1.2 8080\n",
 		"ip nat source static 10.0.0.1 10.0.0.2\n")
 	mustNotContain(t, out, "overload \n", "pool  ")

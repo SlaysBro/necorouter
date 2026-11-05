@@ -14,7 +14,7 @@ func servicePolicyNames(s *Session) []string {
 	return out
 }
 
-// service-policy follows the router limiter grammar. Policies apply to a
+// service-policy uses the router's limiter grammar. Policies apply to a
 // service-instance in the in/out direction.
 func servicePolicyNode() *Node {
 	name := A(KWord, "NAME", "Policy name (letters, digits, _ . : / -)").

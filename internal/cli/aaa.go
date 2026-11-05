@@ -6,7 +6,7 @@ import (
 	"necorouter/internal/logx"
 )
 
-// aaa logging level 1-6 : which AAA service events go to the journal.
+// aaa logging level 1-6: which AAA service events go to the journal.
 // Levels: 1 critical, 2 error, 3 warning (default), 4 notice, 5 info, 6 debug.
 // Each level includes the lower ones. An event is written if the journal level is not below its threshold.
 
