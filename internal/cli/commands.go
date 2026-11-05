@@ -76,14 +76,6 @@ func userNames(s *Session) []string {
 	return o
 }
 
-func rangeOf(v string) (string, string) {
-	i := strings.IndexByte(v, '-')
-	if i < 0 {
-		return v, v
-	}
-	return v[:i], v[i+1:]
-}
-
 func buildTrees() map[string][]*Node {
 	t := map[string][]*Node{}
 
@@ -238,14 +230,17 @@ func buildTrees() map[string][]*Node {
 				N(func(s *Session, v []string) error { return delRoute(s, v[0], "") })),
 		K("pool", "Define an address pool",
 			A(KWord, "NAME", "Pool name",
-				A(KRange, "A.B.C.D[-A.B.C.D]", "Address range (a single address is allowed)").R(func(s *Session, v []string) error {
-					f, to := rangeOf(v[1])
+				A(KRange, "A.B.C.D[-A.B.C.D][,...]", "Comma-separated IPv4 addresses or ranges").R(func(s *Session, v []string) error {
+					ranges, err := config.ParseIPv4Ranges(v[1])
+					if err != nil {
+						return err
+					}
 					c := s.cfg()
 					if p := c.FindPool(v[0]); p != nil {
-						p.From, p.To = f, to
+						p.Ranges, p.From, p.To = ranges, "", ""
 						return nil
 					}
-					c.IPPools = append(c.IPPools, &config.IPPool{Name: v[0], From: f, To: to})
+					c.IPPools = append(c.IPPools, &config.IPPool{Name: v[0], Ranges: ranges})
 					return nil
 				})).N(func(s *Session, v []string) error {
 				c := s.cfg()
@@ -589,14 +584,17 @@ func natTree() *Node {
 	return K("nat", "NAT configuration commands",
 		K("pool", "Define a pool of inside local addresses",
 			A(KWord, "NAME", "Pool name",
-				A(KRange, "A.B.C.D[-A.B.C.D]", "Address range (a single address is allowed)").R(func(s *Session, v []string) error {
-					f, to := rangeOf(v[1])
+				A(KRange, "A.B.C.D[-A.B.C.D][,...]", "Comma-separated IPv4 addresses or ranges").R(func(s *Session, v []string) error {
+					ranges, err := config.ParseIPv4Ranges(v[1])
+					if err != nil {
+						return err
+					}
 					c := s.cfg()
 					if p := c.FindNATPool(v[0]); p != nil {
-						p.From, p.To = f, to
+						p.Ranges, p.From, p.To = ranges, "", ""
 						return nil
 					}
-					c.NATPools = append(c.NATPools, &config.NATPool{Name: v[0], From: f, To: to})
+					c.NATPools = append(c.NATPools, &config.NATPool{Name: v[0], Ranges: ranges})
 					return nil
 				})).N(func(s *Session, v []string) error {
 				c := s.cfg()

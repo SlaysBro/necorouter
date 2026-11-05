@@ -50,6 +50,7 @@ func (p Paths) Journal() string     { return p.Var + "/config.journal" }
 func (p Paths) RunSnap() string     { return p.Var + "/running.conf" }
 func (p Paths) RunLock() string     { return p.Var + "/running.lock" }
 func (p Paths) History() string     { return p.Etc + "/startup-history" }
+func (p Paths) UpdatePrefs() string { return p.Etc + "/update.json" }
 func (p Paths) Backups() string     { return p.Etc + "/backups" }
 func (p Paths) LogDir() string      { return p.Root + "/var/log/necorouter" }
 func (p Paths) FilesDir() string    { return p.Var + "/files" }
@@ -620,7 +621,7 @@ func NewManager(p Paths, l *log.Logger) *Manager {
 	env := &Env{P: p, Log: l, Sup: NewSupervisor(l), St: LoadState(p.State())}
 	env.Ports = LoadPortMap(p.PortMap())
 	return &Manager{Env: env, Services: []Service{
-		&hostSvc{}, &tzSvc{}, &usersSvc{}, &netSvc{}, &trafficShapeSvc{}, &dnsSvc{},
+		&hostSvc{}, &startupBannerSvc{}, &tzSvc{}, &usersSvc{}, &netSvc{}, &trafficShapeSvc{}, &dnsSvc{},
 		&natSvc{}, &secSvc{}, &fmapSvc{}, &dhcpSvc{}, &ospfSvc{}, &ntpSvc{}, &ipsecSvc{},
 	}}
 }

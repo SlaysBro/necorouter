@@ -35,12 +35,14 @@ func VersionString() string {
 
 // Router — shared state: one running-config for all sessions.
 type Router struct {
-	mu      sync.Mutex
-	Cfg     *config.Config
-	Mgr     *svc.Manager
-	P       svc.Paths
-	Started time.Time
-	crashed bool // the previous run ended abnormally (see backup.go)
+	mu              sync.Mutex
+	Cfg             *config.Config
+	Mgr             *svc.Manager
+	P               svc.Paths
+	Started         time.Time
+	crashed         bool // the previous run ended abnormally (see backup.go)
+	updateMu        sync.Mutex
+	updateCheckDone bool
 
 	// power management (see power.go)
 	power       func(kind string) error // replacement for the system reboot (tests); nil — the real one
@@ -51,6 +53,17 @@ type Router struct {
 
 func NewRouter(mgr *svc.Manager, p svc.Paths) *Router {
 	return &Router{Cfg: config.New(), Mgr: mgr, P: p, Started: time.Now()}
+}
+
+// ClaimUpdateAutocheck allows one automatic check per daemon lifetime.
+func (r *Router) ClaimUpdateAutocheck() bool {
+	r.updateMu.Lock()
+	defer r.updateMu.Unlock()
+	if r.updateCheckDone {
+		return false
+	}
+	r.updateCheckDone = true
+	return true
 }
 
 // Save writes running-config to startup-config.
@@ -206,19 +219,26 @@ func (s *Session) Printf(f string, a ...any) {
 }
 
 func isCfg(kind string) bool {
-	switch kind {
-	case "config", "if", "port", "si", "ospf", "user", "dhcp", "secprof", "fmap", "ipprof", "ikep1", "ikep2", "cmap", "rmap":
-		return true
-	}
-	return false
+	return kind != "exec" && kind != "priv"
 }
 
 var suffixes = map[string]string{
 	"exec": ">", "priv": "#", "config": "(config)#", "if": "(config-if)#",
 	"port": "(config-port)#", "si": "(config-service-instance)#",
-	"ospf": "(config-router)#", "user": "(config-user)#", "dhcp": "(config-dhcp-server)#", "secprof": "(config-security-profile)#",
+	"qospolicy": "(config-service-policy)#",
+	"ospf":      "(config-router)#", "user": "(config-user)#", "dhcp": "(config-dhcp-server)#", "secprof": "(config-security-profile)#",
 	"fmap": "(filter-map-ipv4)#", "ipprof": "(config-ipsec-profile)#", "ikep1": "(config-ike-phase1)#",
 	"ikep2": "(config-ike-phase2)#", "cmap": "(config-crypto-map)#", "rmap": "(config-route-map)#",
+}
+
+func modeSuffix(kind string) string {
+	if suffix, ok := suffixes[kind]; ok {
+		return suffix
+	}
+	if isCfg(kind) {
+		return "(config-" + kind + ")#"
+	}
+	return ">"
 }
 
 // confirmation — an action awaiting user confirmation.
@@ -247,7 +267,7 @@ func (s *Session) Prompt() string {
 	s.R.mu.Lock()
 	h := s.R.Cfg.Hostname
 	s.R.mu.Unlock()
-	return h + suffixes[s.top().kind]
+	return h + modeSuffix(s.top().kind)
 }
 
 func (s *Session) rootsFor(kind string) []*Node { return s.prune(trees[kind]) }
@@ -369,7 +389,7 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 		if d.errKind == "ambiguous" {
 			s.Printf("%% Ambiguous command: \"%s\"\n", toks[d.errTok])
 		} else {
-			s.Printf("%s^\n%% Invalid input detected at '^' marker.\n", strings.Repeat(" ", len(s.R.Cfg.Hostname)+len(suffixes[s.top().kind])+1+off))
+			s.Printf("%s^\n%% Invalid input detected at '^' marker.\n", strings.Repeat(" ", len(s.R.Cfg.Hostname)+len(modeSuffix(s.top().kind))+1+off))
 			if d.errTok < len(toks) {
 				if h := badTokenHint(toks, d.errTok); h != "" {
 					s.Printf("%% %s\n", h)

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"necorouter/internal/config"
 )
 
 type ArgKind int
@@ -96,14 +98,8 @@ func (n *Node) validate(tok string) bool {
 		p, err := netip.ParsePrefix(tok)
 		return err == nil && p.Addr().Is4()
 	case KRange:
-		i := strings.IndexByte(tok, '-')
-		if i < 0 { // one address: a pool of a single IP
-			a, err := netip.ParseAddr(tok)
-			return err == nil && a.Is4()
-		}
-		a, e1 := netip.ParseAddr(tok[:i])
-		b, e2 := netip.ParseAddr(tok[i+1:])
-		return e1 == nil && e2 == nil && a.Is4() && b.Is4() && a.Compare(b) <= 0
+		_, err := config.ParseIPv4Ranges(tok)
+		return err == nil
 	}
 	return false
 }

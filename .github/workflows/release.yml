@@ -27,6 +27,11 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare release notes from CHANGELOG.md
+        run: |
+          awk -v heading="## $GITHUB_REF_NAME" '$0 == heading {found=1; next} found && /^## / {exit} found {print}' CHANGELOG.md > RELEASE_NOTES.md
+          test -s RELEASE_NOTES.md
+
       - name: Test
         run: go test ./...
 
@@ -45,5 +50,5 @@ jobs:
         run: |
           pre=""
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" $pre --generate-notes \
+          gh release create "$GITHUB_REF_NAME" $pre --notes-file RELEASE_NOTES.md \
             dist/necorouter-x86_64 dist/necorouter-aarch64 SHA256SUMS

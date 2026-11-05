@@ -3,7 +3,7 @@ package cli
 // Updating necorouter from GitHub releases (privileged mode):
 //   update check            current version, the latest stable release and the latest pre-release
 //   update list [N]         the newest N releases (default 10, up to 50)
-//   update                  install the latest stable release (confirmation)
+//   update                  install the latest release from the selected channel (confirmation)
 //   update pre              install the newest pre-release (confirmation)
 //   update to TAG           install a given release; an older release is a downgrade (confirmation)
 //
@@ -37,6 +37,65 @@ type relInfo struct {
 	Pre       bool
 }
 
+type updatePrefs struct {
+	Channel   string `json:"channel"`
+	AutoCheck bool   `json:"autocheck,omitempty"`
+}
+
+func (s *Session) updatePrefs() updatePrefs {
+	b, err := os.ReadFile(s.R.P.UpdatePrefs())
+	var p updatePrefs
+	if err == nil {
+		_ = json.Unmarshal(b, &p)
+	}
+	if p.Channel == "" {
+		p.Channel = "release"
+	}
+	return p
+}
+
+func (s *Session) saveUpdatePrefs(p updatePrefs) error {
+	if err := os.MkdirAll(s.R.P.Etc, 0o750); err != nil {
+		return err
+	}
+	b, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeAtomic(s.R.P.UpdatePrefs(), string(b)+"\n")
+}
+
+func (s *Session) setUpdateChannel(channel string) error {
+	if channel != "release" && channel != "pre" {
+		return fmt.Errorf("update channel must be release or pre")
+	}
+	p := s.updatePrefs()
+	p.Channel = channel
+	if err := s.saveUpdatePrefs(p); err != nil {
+		return err
+	}
+	s.Printf("update channel set to %s\n", channel)
+	return nil
+}
+
+func (s *Session) setUpdateAutocheck(enabled bool) error {
+	s.R.ClaimUpdateAutocheck()
+	p := s.updatePrefs()
+	p.AutoCheck = enabled
+	if err := s.saveUpdatePrefs(p); err != nil {
+		return err
+	}
+	if enabled {
+		s.Printf("update autocheck enabled; checking now\n")
+		if err := s.autoCheckUpdate(); err != nil {
+			s.Printf("%% update check: %s\n", err)
+		}
+		return nil
+	}
+	s.Printf("update autocheck disabled\n")
+	return nil
+}
+
 var tagRe = regexp.MustCompile(`^v?\d+(\.\d+)+(-[0-9A-Za-z.]+)?$`)
 
 func updateAPIBase() string {
@@ -62,12 +121,16 @@ func updateRepo() (string, error) {
 
 // fetchReleases returns the newest n published releases (drafts are skipped).
 func fetchReleases(n int) ([]relInfo, error) {
+	return fetchReleasesTimeout(n, 15*time.Second)
+}
+
+func fetchReleasesTimeout(n int, timeout time.Duration) ([]relInfo, error) {
 	repo, err := updateRepo()
 	if err != nil {
 		return nil, err
 	}
 	url := fmt.Sprintf("%s/repos/%s/releases?per_page=%d", updateAPIBase(), repo, n)
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach GitHub: %v", err)
@@ -147,6 +210,7 @@ func normTag(t string) string {
 }
 
 func (s *Session) updateCheck() error {
+	p := s.updatePrefs()
 	rels, err := fetchReleases(30)
 	if err != nil {
 		return err
@@ -163,11 +227,36 @@ func (s *Session) updateCheck() error {
 	s.Printf("current:           v%s\n", Version)
 	s.Printf("latest stable:     %s\n", describe(stable))
 	s.Printf("latest pre-release: %s\n", describe(pre))
-	if stable != nil && cmpVer(stable.Tag, Version) > 0 {
-		s.Printf("%% A newer stable release is available: update\n")
+	selected := stable
+	selectedName := "stable release"
+	if p.Channel == "pre" {
+		selected = pre
+		selectedName = "pre-release"
+	}
+	s.Printf("update channel:     %s\n", p.Channel)
+	if selected != nil && cmpVer(selected.Tag, Version) > 0 {
+		s.Printf("%% A newer %s is available: update\n", selectedName)
 	}
 	return nil
 }
+
+// autoCheckUpdate runs once per daemon lifetime, on the first administrator login.
+func (s *Session) autoCheckUpdate() error {
+	p := s.updatePrefs()
+	rels, err := fetchReleasesTimeout(30, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	pre := p.Channel == "pre"
+	for _, r := range rels {
+		if r.Pre == pre && cmpVer(r.Tag, Version) > 0 {
+			return s.ask("", fmt.Sprintf("Update %s is available. Install it?", r.Tag), func(s *Session) error { return s.startUpdate(r.Tag) })
+		}
+	}
+	return nil
+}
+
+func (s *Session) AutoCheckUpdate() error { return s.autoCheckUpdate() }
 
 func describe(r *relInfo) string {
 	if r == nil {
@@ -206,14 +295,21 @@ func (s *Session) updateInstall(tag string) error {
 }
 
 func (s *Session) updateLatest(pre bool) error {
+	if !pre {
+		pre = s.updatePrefs().Channel == "pre"
+	}
 	rels, err := fetchReleases(30)
 	if err != nil {
 		return err
 	}
 	for _, r := range rels {
 		if r.Pre == pre {
-			if !pre && cmpVer(r.Tag, Version) == 0 {
-				s.Printf("already on the latest release (v%s)\n", Version)
+			if cmpVer(r.Tag, Version) == 0 {
+				kind := "release"
+				if pre {
+					kind = "pre-release"
+				}
+				s.Printf("already on the latest %s (v%s)\n", kind, Version)
 				return nil
 			}
 			return s.updateInstall(r.Tag)
@@ -244,8 +340,11 @@ func (s *Session) updateTo(tag string) error {
 
 // startUpdate runs the installer for tag in a separate process.
 func (s *Session) startUpdate(tag string) error {
-	args := []string{"--version", tag, "--no-deps"}
-	logx.Auditf(s.User, "update to %s started", tag)
+	return s.launchUpdate([]string{"--version", tag, "--no-deps"}, "update to "+tag)
+}
+
+func (s *Session) launchUpdate(args []string, audit string) error {
+	logx.Auditf(s.User, "%s started", audit)
 	if updateRunHook != nil {
 		return updateRunHook(args)
 	}
@@ -278,8 +377,8 @@ func (s *Session) startUpdate(tag string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("cannot start the update: %v", err)
 	}
-	logx.Infof("UPDATE", "update to %s started; output in %s", tag, log)
-	s.Printf("%% Update to %s started in the background. The router restarts and sessions end.\n", tag)
+	logx.Infof("UPDATE", "%s started; output in %s", audit, log)
+	s.Printf("%% %s in the background. The router restarts and sessions end.\n", strings.ToUpper(audit[:1])+audit[1:])
 	s.Printf("%% Progress: %s. After the restart check: show version\n", log)
 	return nil
 }
@@ -303,6 +402,15 @@ func updateNode() *Node {
 		K("pre", "Install the newest pre-release").R(func(s *Session, _ []string) error {
 			return s.updateLatest(true)
 		}),
+		K("channel", "Select release or pre-release updates",
+			K("release", "Use stable releases").R(func(s *Session, _ []string) error { return s.setUpdateChannel("release") }),
+			K("pre", "Use pre-releases").R(func(s *Session, _ []string) error { return s.setUpdateChannel("pre") }),
+		).R(func(s *Session, _ []string) error {
+			p := s.updatePrefs()
+			s.Printf("update channel: %s\n", p.Channel)
+			return nil
+		}),
+		K("autocheck", "Check for updates at startup and offer to install").R(func(s *Session, _ []string) error { return s.setUpdateAutocheck(true) }).N(func(s *Session, _ []string) error { return s.setUpdateAutocheck(false) }),
 		K("to", "Install a given release (an older one is a downgrade)",
 			A(KWord, "TAG", "Release tag, for example v0.21").R(func(s *Session, v []string) error {
 				return s.updateTo(v[0])

@@ -84,7 +84,7 @@ func (n *natSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 		if len(inside) > 0 {
 			in = "iifname " + set(inside) + " "
 		}
-		post = append(post, fmt.Sprintf("%soifname %s ip saddr %s %s", in, set(outside), addrRange(p.From, p.To), act))
+		post = append(post, fmt.Sprintf("%soifname %s ip saddr %s %s", in, set(outside), nftAddressRanges(p.AddressRanges()), act))
 	}
 
 	var b strings.Builder
@@ -124,9 +124,9 @@ func (*natSvc) Status(env *Env) string {
 	return "idle"
 }
 
-func addrRange(from, to string) string {
-	if from == to {
-		return from
+func nftAddressRanges(ranges []string) string {
+	if len(ranges) == 1 {
+		return ranges[0]
 	}
-	return from + "-" + to
+	return "{ " + strings.Join(ranges, ", ") + " }"
 }

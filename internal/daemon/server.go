@@ -232,6 +232,19 @@ func (s *Server) serve(c *net.UnixConn) {
 		sess = cli.NewSession(s.R, u)
 		sess.TTY = tty
 		_ = c.SetReadDeadline(time.Time{})
+		if u.Role == "admin" && s.R.ClaimUpdateAutocheck() {
+			// Preferences are kept separately from startup-config and survive reloads.
+			if b, err := os.ReadFile(s.P.UpdatePrefs()); err == nil {
+				var prefs struct {
+					AutoCheck bool `json:"autocheck"`
+				}
+				if json.Unmarshal(b, &prefs) == nil && prefs.AutoCheck {
+					if err := sess.AutoCheckUpdate(); err != nil {
+						send(Resp{Out: "% update check: " + err.Error() + "\n"})
+					}
+				}
+			}
+		}
 		if m := s.R.Motd(); m != "" { // banner motd greeting: before the warnings and the prompt
 			send(Resp{Out: m + "\n"})
 		}

@@ -66,7 +66,13 @@ func (*dhcpSvc) Apply(env *Env, c *config.Config) ([]string, error) {
 			lease = fmt.Sprintf("%ds", d.Lease)
 		}
 		fmt.Fprintf(&b, "interface=%s\n", dev)
-		fmt.Fprintf(&b, "dhcp-range=set:%s,%s,%s,%s,%s\n", tag, pool.From, pool.To, mask, lease)
+		for _, r := range pool.AddressRanges() {
+			from, to, _ := strings.Cut(r, "-")
+			if to == "" {
+				to = from
+			}
+			fmt.Fprintf(&b, "dhcp-range=set:%s,%s,%s,%s,%s\n", tag, from, to, mask, lease)
+		}
 		if gw != "" {
 			fmt.Fprintf(&b, "dhcp-option=tag:%s,option:router,%s\n", tag, gw)
 		}

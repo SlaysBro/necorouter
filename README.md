@@ -84,6 +84,7 @@ Use your actual port and service-instance names. The rates are explicit; the rou
   Fedora, RedOS, Oracle Linux, Amazon Linux, openEuler; Alpine Linux.
 - **Init systems:** systemd and OpenRC.
 - **Architectures:** amd64 and arm64 (static binaries, `CGO_ENABLED=0`).
+- **Minimum hardware:** 1 CPU core and 2 threads.
 - **Build requirements:** Go 1.24 or newer.
 
 The installer detects the distribution family from `/etc/os-release`. Not every distribution has been tested on
@@ -157,14 +158,22 @@ From privileged mode:
 
     update check            current version, latest stable release and latest pre-release
     update list [N]         the newest N releases (default 10)
-    update                  install the latest stable release (asks for confirmation)
+    update                  install the latest release from the selected channel
     update pre              install the newest pre-release
-    update to TAG           install a given release, for example `update to v0.21`; older releases are downgrades
+    update to TAG           install a given release
+    update channel          show the selected update channel
+    update channel release  use stable releases
+    update channel pre      use pre-releases for `update` and autocheck
+    update autocheck        check on login and offer available updates
+    no update autocheck     disable automatic checks
 
 The update runs in the background; the router restarts and sessions end. Progress is in
 `/var/log/necorouter/update.log`. Releases are checked against `SHA256SUMS`; the checksums come from the same
-release, so they protect against damaged downloads, not against a compromised release. These commands update
-necorouter only, not the operating system.
+release, so they protect against damaged downloads, not against a compromised release. These commands update necorouter only, not the operating system.
+
+Comma-separated ranges are accepted by `ip pool` and `ip nat pool`, for example `ip nat pool OUTSIDE 192.168.0.1-192.168.0.5,172.16.0.1-172.16.0.255`.
+
+`no banner startup` disables the banner before login; `banner startup` enables it.
 
 ## Quick start: an example configuration
 

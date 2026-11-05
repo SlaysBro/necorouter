@@ -46,6 +46,13 @@ func bannerConfigNode() *Node {
 		return nil
 	}
 	return K("banner", "Define a login banner",
+		K("startup", "Show the configured banner before console and SSH login").R(func(s *Session, _ []string) error {
+			s.cfg().BannerStartupOff = false
+			return nil
+		}).N(func(s *Session, _ []string) error {
+			s.cfg().BannerStartupOff = true
+			return nil
+		}),
 		K("motd", "Message of the day, shown after login",
 			K("default", "Default message: the program version").R(func(s *Session, _ []string) error {
 				s.cfg().BannerMotd, s.cfg().BannerOff = "", false
