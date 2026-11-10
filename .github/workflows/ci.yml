@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5   # caches the Go build and module caches by default
+        with:
+          go-version-file: go.mod
+
+      - name: The version has a changelog section
+        run: |
+          ver=$(tr -d '[:space:]' < cmd/necorouter/VERSION)
+          if ! grep -qx "## v$ver" CHANGELOG.md; then
+            echo "CHANGELOG.md has no section '## v$ver'" >&2
+            exit 1
+          fi
+
+      - name: gofmt
+        run: |
+          out=$(gofmt -l cmd internal)
+          if [ -n "$out" ]; then echo "not formatted:"; echo "$out"; exit 1; fi
+
+      - name: Documentation is generated from the code
+        run: |
+          go run ./cmd/gendocs docs/index.html
+          git diff --exit-code docs/index.html
+
+      - name: Tools for the end-to-end tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iproute2 iputils-ping traceroute nftables dnsmasq procps python3
+
+      - name: Build for amd64 and arm64
+        run: make all
+
+      - name: Vet, unit, interactive and end-to-end tests (root, network namespaces)
+        run: |
+          set -o pipefail
+          sudo env "PATH=$PATH" make test 2>&1 | tee test.log
+
+      - name: Keep the test log when a test fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: test.log
+
+      - name: Keep the binaries of this commit
+        uses: actions/upload-artifact@v4
+        with:
+          name: necorouter-binaries
+          path: dist/necorouter-*

@@ -201,7 +201,7 @@ func secConfigNodes() []*Node {
 				if s.cfg().FindSecProfile(id) == nil {
 					s.cfg().SecProfiles = append(s.cfg().SecProfiles, &config.SecProfile{ID: id})
 				}
-				s.enter("secprof", v[0])
+				s.enter(modeSecProf, v[0])
 				return nil
 			}).
 			N(func(s *Session, v []string) error {
@@ -241,10 +241,7 @@ func secConfigNodes() []*Node {
 
 func showSecurityNode() *Node {
 	return K("security-profile", "Show security profiles").R(func(s *Session, _ []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
-		c := s.cfg()
+		c := s.cfg() // the rules hold no secrets: every role that may see the command reads them
 		show := func(name string, rules []config.SecRule) {
 			s.Printf("Security profile %s\n", name)
 			for _, r := range rules {

@@ -36,7 +36,9 @@ type Node struct {
 	Run, Neg Handler
 	Hidden   bool
 	Gate     func(*Session) bool // the command is visible and available only if true (additional features)
+	access   map[string][]string // per mode: the roles that may use the command (see For)
 	Secret   bool                // everything entered after this word is a secret: it does not go to the journal
+	tabOnly  bool                // Complete values are offered by Tab only, not listed by '?'
 }
 
 // K — keyword, A — argument.
@@ -59,11 +61,64 @@ func (n *Node) Cmp(f func(s *Session) []string) *Node {
 }
 func (n *Node) Hide() *Node { n.Hidden = true; return n }
 
+// TabOnly keeps the Complete values out of '?': they are offered by Tab only (used for user names).
+func (n *Node) TabOnly() *Node { n.tabOnly = true; return n }
+
 // Sec marks a word followed by a secret (key, password).
 func (n *Node) Sec() *Node { n.Secret = true; return n }
 
 // When restricts a command by a condition: while it is false, the command is hidden and does not execute.
 func (n *Node) When(g func(*Session) bool) *Node { n.Gate = g; return n }
+
+// For makes the command visible in one mode (modeExec, modePriv, ...) to the listed roles (no role listed: any role).
+// Once For is used, the command is offered only in the modes it was given for: a mode missing from the list
+// does not show it at all. A command without any For is offered in every mode.
+func (n *Node) For(mode string, roles ...string) *Node {
+	if n.access == nil {
+		n.access = map[string][]string{}
+	}
+	n.access[mode] = roles
+	return n
+}
+
+// visibleIn reports whether the command is offered in the mode to the role.
+func (n *Node) visibleIn(mode, role string) bool {
+	if n.access == nil {
+		return true
+	}
+	roles, ok := n.access[mode]
+	if !ok {
+		return false
+	}
+	if len(roles) == 0 {
+		return true
+	}
+	for _, r := range roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// offeredIn reports whether the command is offered in the mode at all (whatever the role).
+func (n *Node) offeredIn(mode string) bool {
+	if n.access == nil {
+		return true
+	}
+	_, ok := n.access[mode]
+	return ok
+}
+
+// kid returns the child with the word; it panics when the word does not exist (a mistake found at start-up).
+func (n *Node) kid(word string) *Node {
+	for _, k := range n.Kids {
+		if k.Word == word {
+			return k
+		}
+	}
+	panic("cli: no command " + word + " under " + n.Word)
+}
 
 func (n *Node) hint() string {
 	switch n.Arg {
@@ -237,8 +292,8 @@ func suggestions(s *Session, roots []*Node, toks []string, partial string, trail
 		if partial == "" || k.validate(partial) || k.Complete != nil {
 			items = append(items, helpItem{k.hint(), k.Help})
 		}
-		// known argument values (interfaces, pools…) are shown as a list
-		if k.Complete != nil {
+		// known argument values (interfaces, pools…) are shown as a list; tab-only values are not
+		if k.Complete != nil && !k.tabOnly {
 			for _, c := range k.Complete(s) {
 				if strings.HasPrefix(strings.ToLower(c), lp) {
 					items = append(items, helpItem{c, k.Help})
@@ -291,6 +346,9 @@ func (s *Session) Help(line string) string {
 // Complete — the result of pressing Tab. Returns the new line and (when
 // ambiguous) the list of options.
 func (s *Session) Complete(line string) (string, []string) {
+	if strings.TrimSpace(line) == "" { // Tab on an empty line does nothing
+		return line, nil
+	}
 	kind, rest := s.resolve(line)
 	prefix := line[:len(line)-len(rest)]
 	if pos, tail, ok := s.pipeTail(kind, rest); ok && rest[pos] == '|' && !strings.Contains(strings.TrimLeft(tail, " "), " ") {

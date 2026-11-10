@@ -4,6 +4,9 @@
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${1:-$ROOT/dist/necorouter}
 MKVETH=${2:-$ROOT/dist/mkveth}
+# the binaries come from make; build them when they are missing (the same targets make test uses)
+[ -x "$BIN" ] || (cd "$ROOT" && make host) || exit 1
+[ -x "$MKVETH" ] || (cd "$ROOT" && make dist/mkveth) || exit 1
 mount -t sysfs sysfs /sys
 N=0
 for ex in example-1 example-2; do N=$((N+1))

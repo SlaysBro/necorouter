@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"log"
+	"necorouter/internal/proto"
 	"net"
 	"os"
 	"os/signal"
@@ -232,7 +233,7 @@ func (s *Server) serve(c *net.UnixConn) {
 		sess = cli.NewSession(s.R, u)
 		sess.TTY = tty
 		_ = c.SetReadDeadline(time.Time{})
-		if u.Role == "admin" && s.R.ClaimUpdateAutocheck() {
+		if u.Role == config.RoleAdmin && s.R.ClaimUpdateAutocheck() {
 			// Preferences are kept separately from startup-config and survive reloads.
 			if b, err := os.ReadFile(s.P.UpdatePrefs()); err == nil {
 				var prefs struct {
@@ -248,7 +249,7 @@ func (s *Server) serve(c *net.UnixConn) {
 		if m := s.R.Motd(); m != "" { // banner motd greeting: before the warnings and the prompt
 			send(Resp{Out: m + "\n"})
 		}
-		if s.R.Crashed() && u.Role == "admin" {
+		if s.R.Crashed() && u.Role == config.RoleAdmin {
 			send(Resp{Out: "% warning: the previous shutdown was abnormal; running-config backup: " + s.P.Crash() + " (show config file crash)\n"})
 		}
 		if s.R.Mgr.DefaultPassword(u.Name) {
@@ -258,7 +259,7 @@ func (s *Server) serve(c *net.UnixConn) {
 	}
 	for rq := range reqs {
 		switch rq.Op {
-		case "hello": // login by the connection owner (the password was checked by getty/sshd via PAM)
+		case proto.OpHello: // login by the connection owner (the password was checked by getty/sshd via PAM)
 			if sess != nil {
 				return
 			}
@@ -266,7 +267,7 @@ func (s *Server) serve(c *net.UnixConn) {
 			var u *config.User
 			if err == nil {
 				if name == "root" && uid == 0 {
-					u = &config.User{Name: "root", Role: "admin"}
+					u = &config.User{Name: "root", Role: config.RoleAdmin}
 				} else {
 					u = s.R.Lookup(name)
 				}
@@ -282,7 +283,7 @@ func (s *Server) serve(c *net.UnixConn) {
 			}
 			open(u, rq.TTY)
 			logx.Auditf(u.Name, "logged in")
-		case "exec":
+		case proto.OpExec:
 			if sess == nil {
 				return
 			}
@@ -313,7 +314,7 @@ func (s *Server) serve(c *net.UnixConn) {
 						<-doneCh
 						return
 					}
-					if q.Op == "intr" {
+					if q.Op == proto.OpIntr {
 						sess.Interrupt()
 					}
 				case quit = <-doneCh:
@@ -324,11 +325,11 @@ func (s *Server) serve(c *net.UnixConn) {
 			if quit {
 				return
 			}
-		case "help":
+		case proto.OpHelp:
 			if sess != nil && cleanLine(rq.Line) {
 				send(Resp{Done: true, Out: sess.Help(rq.Line)})
 			}
-		case "complete":
+		case proto.OpComplete:
 			if sess != nil && cleanLine(rq.Line) {
 				l, o := sess.Complete(rq.Line)
 				send(Resp{Done: true, Line: l, Opts: o})

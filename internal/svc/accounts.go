@@ -119,13 +119,6 @@ func SyncAccounts(env *Env, c *config.Config) ([]string, error) {
 			restoreTaken(st, n)
 		}
 	}
-	// accounts from older runs (router shell with no record of the original)
-	for _, a := range listAccounts() {
-		if a.UID >= 1000 && a.Shell == ShellPath && !want[a.Name] && !owned[a.Name] {
-			restoreShell(a.Name, fallbackShell())
-			leaveRouterGroup(a.Name)
-		}
-	}
 	return warns, nil
 }
 
@@ -221,7 +214,7 @@ func nameByUID(uid int) (string, bool) {
 }
 
 // Cleanup is removal on uninstall: accounts created by the router are deleted,
-// taken ones get their previous shell back, accounts from older versions get a regular shell.
+// taken ones get their previous shell back.
 func Cleanup(p Paths) []string {
 	st := LoadState(p.State())
 	var done []string
@@ -235,13 +228,6 @@ func Cleanup(p Paths) []string {
 	for n := range st.Taken {
 		restoreTaken(st, n)
 		done = append(done, "restored shell of "+n)
-	}
-	for _, a := range listAccounts() {
-		if a.UID >= 1000 && a.Shell == ShellPath && !gone[a.Name] {
-			restoreShell(a.Name, fallbackShell())
-			leaveRouterGroup(a.Name)
-			done = append(done, "restored shell of "+a.Name)
-		}
 	}
 	st.DefPw = nil
 	st.Save()

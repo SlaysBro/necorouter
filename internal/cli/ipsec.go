@@ -84,7 +84,7 @@ func cryptoNodes() []*Node {
 			if err != nil {
 				return err
 			}
-			s.enter("ipprof", p.Name)
+			s.enter(modeIPProf, p.Name)
 			return nil
 		}
 	}
@@ -122,7 +122,7 @@ func cryptoNodes() []*Node {
 		var seq int
 		fmt.Sscan(v[1], &seq)
 		s.cfg().GetCryptoMap(v[0], seq)
-		s.enter("cmap", v[0]+" "+v[1])
+		s.enter(modeCMap, v[0]+" "+v[1])
 		return nil
 	}
 	dropMaps := func(s *Session, name string, seq int) error { // seq < 0 — all map entries
@@ -185,7 +185,7 @@ func ikePhase1Node() *Node {
 		if err != nil {
 			return err
 		}
-		s.enter("ikep1", p.Name)
+		s.enter(modeIKEP1, p.Name)
 		return nil
 	})
 }
@@ -196,7 +196,7 @@ func ikePhase2Node() *Node {
 		if err != nil {
 			return err
 		}
-		s.enter("ikep2", p.Name)
+		s.enter(modeIKEP2, p.Name)
 		return nil
 	})
 }

@@ -10,8 +10,8 @@ import (
 
 // Commands for working with configuration files. Some commands are available right away
 // (write file, write terminal, show files config, show config file, copy file ... startup-config),
-// the rest are enabled by services: service config-history | config-manage | config-journal.
-// Before service, the new commands are visible neither in ? nor in completion.
+// the rest are enabled by the feature command: feature config-features.
+// Before the feature is enabled, its commands are visible neither in ? nor in completion.
 
 func featOn(name string) func(*Session) bool {
 	return func(s *Session) bool { return s.cfg().Features[name] }
@@ -44,19 +44,13 @@ func featureNode() *Node {
 		return K(name, help).R(set(name, true)).N(set(name, false))
 	}
 	return K("feature", "Enable an optional feature",
-		feat("config-history", "Keep copies of startup-config and tune the autosave history of running-config"),
-		feat("config-manage", "Copy ordinary files, compare and delete saved configuration files; crash-config remains available"),
-		feat("config-journal", "Log configuration operations: who, when, what"),
-		feat("ssh-copy", "Copy configuration to and from other devices over scp and sftp"),
+		feat("config-features", "Configuration files: startup-config history and autosave, copying between files and into running-config, deleting files, diff, operations journal"),
 	)
 }
 
 // showFeaturesNode: show features — always visible, like the other show commands.
 func showFeaturesNode() *Node {
 	return K("features", "Show the optional features and their state").R(func(s *Session, _ []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		for _, f := range config.Features {
 			st := "off"
 			if s.cfg().Features[f] {
@@ -68,9 +62,9 @@ func showFeaturesNode() *Node {
 	})
 }
 
-// historyCfgNodes: configuration mode commands available with service config-history.
+// historyCfgNodes: configuration mode commands available with feature config-features.
 func historyCfgNodes() []*Node {
-	on := featOn("config-history")
+	on := featOn("config-features")
 	startup := K("startup-history", "Keep the last N copies of startup-config when it is overwritten (default 10)",
 		K("keep", "Number of copies to keep",
 			A(KInt, "N", "Copies (1-64)").Rng(1, maxKeep).R(func(s *Session, v []string) error {
@@ -117,9 +111,6 @@ func writeKids() []*Node {
 	file := K("file", "Write the running configuration to a named file",
 		A(KWord, "FILENAME", "File name (letters, digits, '.', '_', '-'; up to 32 characters)").R(cmdWriteFile))
 	terminal := K("terminal", "Write the running configuration to the terminal").R(func(s *Session, _ []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		s.Printf("%s", s.cfg().Render())
 		return nil
 	})
@@ -141,7 +132,7 @@ func writeKids() []*Node {
 			s.journal("write description %q", d)
 			s.Printf("[OK]\n")
 			return nil
-		})).When(featOn("config-history"))
+		})).When(featOn("config-features"))
 	return []*Node{file, terminal, desc}
 }
 
@@ -167,37 +158,26 @@ func cmdWriteFile(s *Session, v []string) error {
 	return do(s)
 }
 
-// copyKids: crash-config is a built-in recovery file; ordinary file-to-running and startup-to-running copies need config-manage.
+// copyKids: crash-config is a built-in recovery file; ordinary file-to-running and startup-to-running copies need feature config-features.
 func copyKids() []*Node {
-	manage := featOn("config-manage")
-	crashFileSource := func(name string) *Node {
-		return K(name, "Use the crash recovery configuration as the source",
-			K("startup-config", "Replace startup-config with this file").R(copyHandler("startup", name)),
-			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", name)))
-	}
+	manage := featOn("config-features")
+	// the source is a saved file (write file NAME); the startup-config and crash-config sources are
+	// the separate 'copy startup-config …' and 'copy crash-config …' commands
 	file := K("file", "Copy a saved configuration file",
-		A(KWord, "FILENAME", "File name, startup, crash or a name from 'show files config'",
+		A(KWord, "FILENAME", "Saved configuration file (see 'show files config')",
 			K("startup-config", "Replace startup-config with this file").R(copyHandler("startup", "")),
-			K("startup", "Replace startup-config with this file",
-				K("config", "Replace startup-config with this file").R(copyHandler("startup", ""))),
-			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", "")).When(manage)),
-		crashFileSource("crash"), crashFileSource("crash-config"))
+			K("running-config", "Replace the running configuration with this file and apply it").R(copyHandler("running", "")).When(manage)).Cmp(savedFileNames))
 	startup := K("startup-config", "Copy from the startup configuration",
-		K("running-config", "Replace the running configuration with startup-config and apply it").R(copyHandler("running", "startup")).When(manage),
-		backupCopyNode())
-	startup.Kids = append(startup.Kids, exportNodes()...)
+		K("running-config", "Replace the running configuration with startup-config and apply it").R(copyHandler("running", "startup")).When(manage))
 	crash := K("crash-config", "Copy from the configuration saved after an abnormal shutdown",
 		K("startup-config", "Replace startup-config with crash-config").R(copyHandler("startup", "crash")),
 		K("running-config", "Replace the running configuration with crash-config and apply it").R(copyHandler("running", "crash")))
-	return append([]*Node{file, startup, crash}, transferNodes()...)
+	return []*Node{file, startup, crash}
 }
 
 // copyHandler: dst is "startup" or "running"; fixed is the source name if it is given by a command word.
 func copyHandler(dst, fixed string) Handler {
 	return func(s *Session, v []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		src := fixed
 		if src == "" {
 			src = v[0]
@@ -219,7 +199,7 @@ func copyHandler(dst, fixed string) Handler {
 		}
 		if dst == "startup" {
 			warn := fmt.Sprintf("%% Warning: startup-config will be overwritten with %s.\n", ref.Name)
-			if s.cfg().Features["config-history"] {
+			if s.cfg().Features["config-features"] {
 				warn += "%          The old startup-config is kept in the history.\n"
 			} else {
 				warn += "%          The old startup-config will be lost.\n"
@@ -245,26 +225,22 @@ func copyHandler(dst, fixed string) Handler {
 	}
 }
 
-// deleteNode: delete backup storage NAME|*, delete config file NAME (service config-manage).
+// deleteNode: delete config file NAME (feature config-features).
 func deleteNode() *Node {
-	manage := featOn("config-manage")
+	manage := featOn("config-features")
 	deleteCrash := func(name string) *Node {
 		return K(name, "Delete the crash recovery configuration").R(func(s *Session, _ []string) error {
 			return cmdDeleteConfig(s, []string{"crash"})
 		})
 	}
 	return K("delete", "Delete a file",
-		backupDeleteNode(),
 		K("config", "Delete a saved configuration file",
 			K("file", "Delete a configuration file or a history copy",
-				deleteCrash("crash"), deleteCrash("crash-config"),
-				A(KWord, "FILENAME", "Name from 'show files config' or 'show config history'").R(cmdDeleteConfig).When(manage))))
+				deleteCrash("crash-config"),
+				A(KWord, "FILENAME", "Saved configuration file (see 'show files config')").Cmp(savedFileNames).R(cmdDeleteConfig).When(manage))))
 }
 
 func cmdDeleteConfig(s *Session, v []string) error {
-	if err := s.needAdmin(); err != nil {
-		return err
-	}
 	ref, err := s.R.ref(v[0])
 	if err != nil {
 		return err
@@ -291,9 +267,6 @@ func cmdDeleteConfig(s *Session, v []string) error {
 func showConfigNodes() []*Node {
 	files := K("files", "Show saved files",
 		K("config", "List saved configuration files").R(func(s *Session, _ []string) error {
-			if err := s.needAdmin(); err != nil {
-				return err
-			}
 			es := s.R.listFiles()
 			if len(es) == 0 {
 				s.Printf("No saved configuration files (use 'write' or 'write file NAME').\n")
@@ -303,10 +276,7 @@ func showConfigNodes() []*Node {
 			return nil
 		}))
 	file := K("file", "Display the contents of a saved configuration file",
-		A(KWord, "FILENAME", "File name, startup, crash, running or a name from 'show files config'").R(func(s *Session, v []string) error {
-			if err := s.needAdmin(); err != nil {
-				return err
-			}
+		A(KWord, "FILENAME", "startup-config, crash-config, running-config or a saved file (see 'show files config')").Cmp(savedFileNames).R(func(s *Session, v []string) error {
 			ref, err := s.R.ref(v[0])
 			if err != nil {
 				return err
@@ -319,11 +289,8 @@ func showConfigNodes() []*Node {
 			return nil
 		}))
 	diff := K("diff", "Compare two configurations: lines only in the first (-) and only in the second (+)",
-		A(KWord, "A", "First: startup, crash, running or a file name",
-			A(KWord, "B", "Second: startup, crash, running or a file name").R(func(s *Session, v []string) error {
-				if err := s.needAdmin(); err != nil {
-					return err
-				}
+		A(KWord, "A", "First: startup-config, crash-config, running-config or a saved file",
+			A(KWord, "B", "Second: startup-config, crash-config, running-config or a saved file").R(func(s *Session, v []string) error {
 				var texts [2]string
 				for i := 0; i < 2; i++ {
 					ref, err := s.R.ref(v[i])
@@ -344,11 +311,8 @@ func showConfigNodes() []*Node {
 				}
 				s.Printf("%s", d)
 				return nil
-			}))).When(featOn("config-manage"))
-	history := K("history", "List copies kept by config-history: startup-config history and autosave").R(func(s *Session, _ []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
+			}))).When(featOn("config-features"))
+	history := K("history", "List copies kept by config-features: startup-config history and autosave").R(func(s *Session, _ []string) error {
 		es := s.R.listHistoryEntries()
 		if len(es) == 0 {
 			s.Printf("The history is empty.\n")
@@ -356,18 +320,15 @@ func showConfigNodes() []*Node {
 		}
 		s.Printf("%s", formatEntries(es))
 		return nil
-	}).When(featOn("config-history"))
+	}).When(featOn("config-features"))
 	journal := K("journal", "Show the last operations with configuration files (default 50)",
 		A(KInt, "N", "Number of entries (1-1000)").Rng(1, 1000).R(func(s *Session, v []string) error {
 			return showJournal(s, v[0])
-		})).R(func(s *Session, _ []string) error { return showJournal(s, "50") }).When(featOn("config-journal"))
+		})).R(func(s *Session, _ []string) error { return showJournal(s, "50") }).When(featOn("config-features"))
 	return []*Node{files, K("config", "Saved configuration files", file, diff, history, journal)}
 }
 
 func showJournal(s *Session, n string) error {
-	if err := s.needAdmin(); err != nil {
-		return err
-	}
 	var k int
 	fmt.Sscan(n, &k)
 	lines := s.R.journalTail(k)

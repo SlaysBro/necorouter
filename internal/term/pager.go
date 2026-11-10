@@ -19,8 +19,9 @@ import (
 //	/text, n             search forward / next match
 //	q, Q, Ctrl-C, Esc    exit
 //
-// The pager draws on the main screen (no alternate screen): after exit
-// the last page shown stays in the terminal history.
+// The pager opens a separate full-screen page (the terminal's alternate screen,
+// as less does): on exit the console comes back as it was before the command.
+// Text that fits on the screen is printed as usual, without the pager.
 
 // Pager key codes.
 const (
@@ -82,6 +83,7 @@ type pager struct {
 	top    int
 	query  string
 	notice string
+	mode   string // "FOLLOW" or "PAUSED" on a live page (see Follow); empty for a static text
 }
 
 func (p *pager) maxTop() int {
@@ -179,6 +181,8 @@ func (p *pager) status(cols int) string {
 	switch {
 	case p.notice != "":
 		s = " " + p.notice + " "
+	case p.mode != "":
+		s = " " + p.mode + "  b, k, PgUp: back  G, End: to the end  q, Ctrl-C: quit "
 	case p.atEnd():
 		s = " (END) q: quit  b/↑: back "
 	default:
@@ -232,6 +236,8 @@ func runPager(w io.Writer, text string, fixed int, keys func() int, size func() 
 		return
 	}
 	p := &pager{lines: lines, window: window}
+	fmt.Fprint(w, altScreenOn) // a separate page: the console is restored on exit
+	defer fmt.Fprint(w, altScreenOff)
 	fmt.Fprint(w, p.render(0, cols))
 	prev := window
 	for {
@@ -262,12 +268,19 @@ func runPager(w io.Writer, text string, fixed int, keys func() int, size func() 
 		fmt.Fprint(w, p.render(prev, cols))
 		prev = p.window
 	}
-	fmt.Fprint(w, "\r\x1b[K") // remove the status line; the page stays on screen
 }
 
+// altScreenOn / altScreenOff switch the terminal to its alternate screen and back.
+const (
+	altScreenOn  = "\x1b[?1049h\x1b[H\x1b[2J"
+	altScreenOff = "\x1b[?1049l"
+)
+
 // readKey reads one key from the raw terminal.
-func readKey(fd int) int {
-	b := readByteTimeout(fd, -1)
+func readKey(fd int) int { return keyFromByte(fd, readByteTimeout(fd, -1)) }
+
+// keyFromByte maps the first byte of a key (and the rest of an escape sequence) to a pager key.
+func keyFromByte(fd, b int) int {
 	switch b {
 	case 'q', 'Q', 3, 4:
 		return KeyQuit

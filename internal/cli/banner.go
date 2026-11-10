@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"necorouter/internal/config"
@@ -70,6 +71,26 @@ func showBannerNode() *Node {
 		K("motd", "Show the current message of the day").R(func(s *Session, _ []string) error {
 			if m := motdText(s.cfg()); m != "" {
 				s.Printf("%s\n", m)
+			}
+			return nil
+		}),
+		K("startup", "Show the pre-login banner (console and SSH, before the password prompt)").R(func(s *Session, _ []string) error {
+			state := "enabled"
+			if s.cfg().BannerStartupOff {
+				state = "disabled"
+			}
+			path := s.R.P.Banner()
+			s.Printf("banner startup: %s (text in %s)\n", state, path)
+			b, err := os.ReadFile(path)
+			switch {
+			case os.IsNotExist(err):
+				s.Printf("(no banner file)\n")
+			case err != nil:
+				return err
+			case strings.TrimSpace(string(b)) == "":
+				s.Printf("(the banner file is empty)\n")
+			default:
+				s.Printf("%s", strings.TrimRight(string(b), "\n")+"\n")
 			}
 			return nil
 		}))

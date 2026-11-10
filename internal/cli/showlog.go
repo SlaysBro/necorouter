@@ -47,9 +47,6 @@ func logNode() *Node {
 }
 
 func showLog(s *Session, o logOpt, v []string) error {
-	if err := s.needAdmin(); err != nil {
-		return err
-	}
 	if o.follow && o.rev {
 		return fmt.Errorf("follow and reverse cannot be combined")
 	}

@@ -45,7 +45,7 @@ func TestTerminalMonitorAdminOnly(t *testing.T) {
 	r, _ := logSetup(t)
 	u := NewSession(r, &config.User{Name: "noc1", Role: "noc"})
 	defer u.Close()
-	if out := runCmd(u, "terminal monitor"); !strings.Contains(out, "access denied") {
-		t.Fatalf("noc must be denied: %q", out)
+	if out := runCmd(u, "terminal monitor"); !strings.Contains(out, "% Invalid input") {
+		t.Fatalf("noc must not be offered terminal monitor: %q", out)
 	}
 }

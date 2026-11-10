@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -257,15 +256,4 @@ func IPsecShow(env *Env, what string) (string, error) {
 		return "", err
 	}
 	return formatConns(m), nil
-}
-
-// ipsecNames returns the connection names (for tests and diagnostics).
-func ipsecNames(c *config.Config) []string {
-	conns, _ := ipsecConns(c)
-	var out []string
-	for _, cn := range conns {
-		out = append(out, cn.name)
-	}
-	sort.Strings(out)
-	return out
 }

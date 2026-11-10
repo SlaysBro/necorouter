@@ -27,21 +27,6 @@ func TestFeatureGatingAndService(t *testing.T) {
 	if r.Cfg.PwEncrypt {
 		t.Fatal("no service password-encryption did not clear")
 	}
-	if out := runCmd(s, "feature ssh-copy"); strings.Contains(out, "%") {
-		t.Fatalf("feature rejected: %q", out)
-	}
-	if !r.Cfg.Features["ssh-copy"] || !strings.Contains(r.Cfg.Render(), "feature ssh-copy") {
-		t.Fatal("feature not stored or rendered")
-	}
-	runCmd(s, "end")
-	if out := runCmd(s, "show features"); !strings.Contains(out, "ssh-copy") || !strings.Contains(out, "on") {
-		t.Fatalf("show features: %q", out)
-	}
-	// service must not open features: the old name no longer works
-	runCmd(s, "configure terminal")
-	if out := runCmd(s, "service config-history"); !strings.Contains(out, "%") {
-		t.Fatalf("old 'service config-history' still accepted: %q", out)
-	}
 }
 
 // autosave is off by default: with no settings, it is not printed in the configuration

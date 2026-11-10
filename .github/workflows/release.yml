@@ -11,6 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -33,15 +34,19 @@ jobs:
           test -s RELEASE_NOTES.md
 
       - name: Test
-        run: go test ./...
+        run: go test -count=1 -timeout 120s ./...
 
       - name: Build
         run: make all
 
+      - name: Packaging archive (the installer of this release, used by `update`)
+        run: |
+          tar -czf dist/necorouter-packaging.tar.gz -C packaging install.sh source.conf DEPENDENCIES necorouter.service necorouter.openrc etc
+
       - name: Checksums
         run: |
           cd dist
-          sha256sum necorouter-x86_64 necorouter-aarch64 > ../SHA256SUMS
+          sha256sum necorouter-x86_64 necorouter-aarch64 necorouter-packaging.tar.gz > ../SHA256SUMS
           cat ../SHA256SUMS
 
       - name: Publish release
@@ -51,4 +56,4 @@ jobs:
           pre=""
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" $pre --notes-file RELEASE_NOTES.md \
-            dist/necorouter-x86_64 dist/necorouter-aarch64 SHA256SUMS
+            dist/necorouter-x86_64 dist/necorouter-aarch64 dist/necorouter-packaging.tar.gz SHA256SUMS

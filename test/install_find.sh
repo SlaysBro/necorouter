@@ -12,6 +12,7 @@ export W SH BIN HERE
 unshare -m sh -c '
 set -eu
 mount -t tmpfs tmpfs /etc
+mount -t tmpfs tmpfs /run                   # no systemd here: installer must not pick the host systemd
 mkdir -p /etc/ssh /usr/local/bin
 printf "ID=debian\n" > /etc/os-release
 mkproj() { # fresh copy of the project without go.mod (so it is not built from source)

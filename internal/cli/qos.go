@@ -24,7 +24,7 @@ func servicePolicyNode() *Node {
 			p = &config.ServicePolicy{Name: v[0]}
 			s.cfg().ServicePolicies = append(s.cfg().ServicePolicies, p)
 		}
-		s.push("qospolicy", p.Name)
+		s.push(modeQoSPolicy, p.Name)
 		return nil
 	})
 	return K("service-policy", "Create or configure a traffic service-policy", name).
@@ -131,9 +131,6 @@ func currentSI(s *Session) (*config.SI, error) {
 }
 
 func showServicePolicy(s *Session) error {
-	if err := s.needAdmin(); err != nil {
-		return err
-	}
 	if len(s.cfg().ServicePolicies) == 0 {
 		s.Printf("No service-policies configured.\n")
 		return nil

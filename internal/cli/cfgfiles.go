@@ -18,7 +18,7 @@ import (
 // Configuration files:
 //   - startup, crash — service files (startup-config and crash-config);
 //   - running        — the current configuration (only as a source);
-//   - startup-YYYYMMDD-HHMMSS-NNN and autosave-… — copies from history (config-history service);
+//   - startup-YYYYMMDD-HHMMSS-NNN and autosave-… — copies from history (config-features service);
 //   - other names — user files (write file NAME) in /etc/necorouter/configs/.
 var (
 	fileNameRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,31}$`)
@@ -84,7 +84,11 @@ func (r *Router) readCfg(c cfgRef) (string, error) {
 // descOf extracts the description from the first line "! description: ...".
 func descOf(text string) string {
 	first, _, _ := strings.Cut(text, "\n")
-	return strings.TrimSpace(strings.TrimPrefix(first, "! description:"))
+	const prefix = "! description:"
+	if !strings.HasPrefix(first, prefix) { // a plain "!" line is a comment, not a description
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(first, prefix))
 }
 
 type fileEntry struct {
@@ -189,7 +193,7 @@ func errList(errs []string, n int) string {
 func (s *Session) loadRunning(cfg *config.Config) error {
 	admin := false
 	for _, u := range cfg.Users {
-		if u.Role == "admin" {
+		if u.Role == config.RoleAdmin {
 			admin = true
 		}
 	}
@@ -197,7 +201,7 @@ func (s *Session) loadRunning(cfg *config.Config) error {
 		return fmt.Errorf("refusing to load: the configuration has no user with role admin")
 	}
 	if s.User != "root" {
-		if u := cfg.FindUser(s.User); u == nil || u.Role != "admin" {
+		if u := cfg.FindUser(s.User); u == nil || u.Role != config.RoleAdmin {
 			return fmt.Errorf("refusing to load: the configuration does not keep user %q with role admin (you would lose access)", s.User)
 		}
 	}
@@ -253,4 +257,18 @@ func diffText(a, b string) (string, error) {
 		}
 	}
 	return out.String(), nil
+}
+
+// savedFileNames: the names of saved configuration files, for Tab and '?' (admin only).
+func savedFileNames(s *Session) []string {
+	if s.Role != config.RoleAdmin {
+		return nil
+	}
+	var out []string
+	for _, e := range s.R.listFiles() {
+		if e.Kind == "file" {
+			out = append(out, e.Name)
+		}
+	}
+	return out
 }

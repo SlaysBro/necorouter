@@ -113,7 +113,7 @@ func policyConfigNodes() []*Node {
 				seq = atoi(v[1])
 			}
 			s.cfg().GetRouteMapEntry(v[0], seq, action)
-			s.enter("rmap", fmt.Sprintf("%s %d", v[0], seq))
+			s.enter(modeRMap, fmt.Sprintf("%s %d", v[0], seq))
 			return nil
 		}
 	}
@@ -295,9 +295,6 @@ func rmapTree() []*Node {
 
 func showRouteMapNode() *Node {
 	show := func(s *Session, v []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		names := s.cfg().RouteMapNames()
 		if len(v) > 0 {
 			if len(s.cfg().FindRouteMap(v[0])) == 0 {
@@ -351,9 +348,6 @@ func showPrefixListNode() *Node {
 	}
 	list := func(detail bool) Handler {
 		return func(s *Session, v []string) error {
-			if err := s.needAdmin(); err != nil {
-				return err
-			}
 			name := ""
 			if len(v) > 0 {
 				name = v[0]
@@ -369,9 +363,6 @@ func showPrefixListNode() *Node {
 		}
 	}
 	summary := func(s *Session, _ []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		ls := append([]*config.PrefixList(nil), s.cfg().PrefixLists...)
 		sort.Slice(ls, func(i, j int) bool { return ls[i].Name < ls[j].Name })
 		for _, l := range ls {

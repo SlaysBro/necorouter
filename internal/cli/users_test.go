@@ -44,35 +44,41 @@ func TestPasswordCommandChangesLinuxAccountOnly(t *testing.T) {
 	}
 }
 
-// A user without a role does not get privileged mode (least privilege).
+// A user without a role does not get privileged mode; noc and helpdesk enter it as in EcoRouter.
 func TestNoRoleCannotEnablePrivileged(t *testing.T) {
 	r := newTestRouter(t)
-	for _, role := range []string{"", "noc", "helpdesk"} {
+	s := NewSession(r, &config.User{Name: "x", Role: ""})
+	var sb strings.Builder
+	s.Exec("enable", &sb)
+	if !strings.Contains(sb.String(), "access denied") {
+		t.Fatalf("role without a role must not enter privileged mode: %q", sb.String())
+	}
+	for _, role := range []string{"noc", "helpdesk"} {
 		s := NewSession(r, &config.User{Name: "x", Role: role})
 		var sb strings.Builder
 		s.Exec("enable", &sb)
-		if !strings.Contains(sb.String(), "access denied") {
-			t.Fatalf("role %q must not enter privileged mode: %q", role, sb.String())
+		if sb.Len() != 0 {
+			t.Fatalf("role %q must enter privileged mode: %q", role, sb.String())
 		}
 	}
-	s := NewSession(r, &config.User{Name: "x", Role: "admin"})
-	var sb strings.Builder
+	s = NewSession(r, &config.User{Name: "x", Role: "admin"})
+	sb.Reset()
 	s.Exec("enable", &sb)
 	if sb.Len() != 0 {
 		t.Fatalf("admin must enter privileged mode: %q", sb.String())
 	}
 }
 
-// The configuration contains secrets (OSPF keys): shown to the admin role only.
+// The startup configuration is shown to the admin role only (it holds the secrets in clear).
 func TestShowConfigRequiresAdmin(t *testing.T) {
 	r := newTestRouter(t)
 	for _, role := range []string{"", "noc", "helpdesk"} {
 		s := NewSession(r, &config.User{Name: "x", Role: role})
-		for _, c := range []string{"show running-config", "show startup-config"} {
+		for _, c := range []string{"show startup-config"} {
 			var sb strings.Builder
 			s.Exec(c, &sb)
-			if !strings.Contains(sb.String(), "access denied") {
-				t.Fatalf("role %q: %q must be denied, got %q", role, c, sb.String())
+			if !strings.Contains(sb.String(), "%") || strings.Contains(sb.String(), "hostname") {
+				t.Fatalf("role %q: %q must be unavailable, got %q", role, c, sb.String())
 			}
 		}
 		var sb strings.Builder

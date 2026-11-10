@@ -127,3 +127,16 @@ func Leases(p Paths) []Lease {
 	}
 	return out
 }
+
+// ClearLeases forgets all DHCP leases (clear dhcp-server clients). dnsmasq is stopped first, because it
+// writes its lease table on exit; then the lease file is emptied and the DHCP service is applied again
+// with the current configuration. It returns the number of leases that were dropped.
+func ClearLeases(env *Env, c *config.Config) (int, []string, error) {
+	n := len(Leases(env.P))
+	env.Sup.Stop("dnsmasq")
+	if err := writeFileAtomic(LeaseFile(env.P), nil, 0o644); err != nil {
+		return n, nil, err
+	}
+	warns, err := (&dhcpSvc{}).Apply(env, c)
+	return n, warns, err
+}

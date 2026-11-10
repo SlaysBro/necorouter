@@ -175,10 +175,7 @@ func put(level, svc, f string, a []any) {
 	l.log(caller(2), level, svc, fmt.Sprintf(f, a...))
 }
 
-func Infof(svc, f string, a ...any)  { put(LevelInfo, svc, f, a) }
-func Warnf(svc, f string, a ...any)  { put(LevelWarn, svc, f, a) }
-func Errorf(svc, f string, a ...any) { put(LevelError, svc, f, a) }
-func Fatalf(svc, f string, a ...any) { put(LevelFatal, svc, f, a) }
+func Infof(svc, f string, a ...any) { put(LevelInfo, svc, f, a) }
 
 // Auditf writes a user action record: "[info] [IMISH] AUDIT [user] message".
 func Auditf(user, f string, a ...any) {
@@ -314,8 +311,14 @@ func Follow(ctx context.Context, dir string, off int64, fn func(Entry)) {
 // Dir returns the log directory.
 func (l *Logger) Dir() string { return l.dir }
 
-// BootTime is the system boot time (from /proc/uptime); zero time if it cannot be determined.
-func BootTime() time.Time {
+// BootTime is the system boot time; zero time if it cannot be determined (then nothing is hidden).
+// It is read through BootTimeFunc, which tests replace, because /proc/uptime is not the same on every host.
+func BootTime() time.Time { return BootTimeFunc() }
+
+// BootTimeFunc returns the boot time of this host (from /proc/uptime). It is a variable so tests can fix it.
+var BootTimeFunc = readBootTime
+
+func readBootTime() time.Time {
 	b, err := os.ReadFile("/proc/uptime")
 	if err != nil {
 		return time.Time{}

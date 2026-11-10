@@ -77,8 +77,6 @@ type Route struct {
 type NATPool struct {
 	Name   string   `json:"name"`
 	Ranges []string `json:"ranges,omitempty"`
-	From   string   `json:"from,omitempty"` // legacy single-range fields
-	To     string   `json:"to,omitempty"`
 }
 
 type NATDyn struct {
@@ -100,8 +98,6 @@ type NATStatic struct {
 type IPPool struct {
 	Name   string   `json:"name"`
 	Ranges []string `json:"ranges,omitempty"`
-	From   string   `json:"from,omitempty"` // legacy single-range fields
-	To     string   `json:"to,omitempty"`
 }
 
 // ParseIPv4Ranges parses comma-separated IPv4 addresses/ranges and returns
@@ -135,25 +131,9 @@ func ParseIPv4Ranges(raw string) ([]string, error) {
 	return out, nil
 }
 
-func (p *IPPool) AddressRanges() []string {
-	if len(p.Ranges) > 0 {
-		return p.Ranges
-	}
-	if p.From == "" {
-		return nil
-	}
-	return []string{rangeStr(p.From, p.To)}
-}
+func (p *IPPool) AddressRanges() []string { return p.Ranges }
 
-func (p *NATPool) AddressRanges() []string {
-	if len(p.Ranges) > 0 {
-		return p.Ranges
-	}
-	if p.From == "" {
-		return nil
-	}
-	return []string{rangeStr(p.From, p.To)}
-}
+func (p *NATPool) AddressRanges() []string { return p.Ranges }
 
 func FormatIPv4Ranges(ranges []string) string { return strings.Join(ranges, ",") }
 
@@ -244,7 +224,7 @@ type Config struct {
 	PwEncrypt        bool                `json:"pw_encrypt,omitempty"`    // service password-encryption (passwords are stored hashed anyway)
 	Features         map[string]bool     `json:"features,omitempty"`      // enabled optional features (feature NAME)
 	AAALevel         int                 `json:"aaa_log_level,omitempty"` // aaa logging level 1-6 (0 means default, 3)
-	StartupKeep      int                 `json:"startup_keep,omitempty"`  // how many startup copies to keep (config-history feature)
+	StartupKeep      int                 `json:"startup_keep,omitempty"`  // how many startup copies to keep (config-features feature)
 	NameServers      []string            `json:"name_servers,omitempty"`
 	NTPServers       []string            `json:"ntp_servers,omitempty"`
 	Users            []*User             `json:"users,omitempty"`
@@ -272,13 +252,13 @@ const AutosaveDefaultMin = 5
 
 // Features are optional features (non-vanilla syntax) enabled by the feature NAME command.
 // Output order in the configuration.
-var Features = []string{"config-history", "config-manage", "config-journal", "ssh-copy"}
+var Features = []string{"config-features"}
 
 // New returns the factory configuration: name necorouter and the built-in admin/admin.
 func New() *Config {
 	return &Config{
 		Hostname: DefaultHostname,
-		Users:    []*User{{Name: "admin", Role: "admin", BuiltinAdmin: true}},
+		Users:    []*User{{Name: BuiltinAdminName, Role: RoleAdmin, BuiltinAdmin: true}},
 	}
 }
 
@@ -452,7 +432,20 @@ func MaskString(n int) string {
 
 // Render prints the configuration in a form suitable both for reading and for replaying
 // through the CLI.
-func (c *Config) Render() string {
+// Render is the whole running configuration, with every secret (keys, password hashes).
+func (c *Config) Render() string { return c.renderText(true) }
+
+// RenderHidingSecrets is the running configuration for a role that may read it but not the secrets:
+// the keys and the password hashes are shown as *****.
+func (c *Config) RenderHidingSecrets() string { return c.renderText(false) }
+
+func (c *Config) renderText(reveal bool) string {
+	sec := func(v string) string {
+		if reveal || v == "" {
+			return v
+		}
+		return "*****"
+	}
 	var b strings.Builder
 	w := func(f string, a ...any) { fmt.Fprintf(&b, f+"\n", a...) }
 	sep := func() { b.WriteString("!\n") }
@@ -491,7 +484,7 @@ func (c *Config) Render() string {
 		sep()
 	}
 	if c.EnablePass != "" {
-		w("enable password 8 %s", c.EnablePass)
+		w("enable password 8 %s", sec(c.EnablePass))
 		sep()
 	}
 	feats := false
@@ -534,7 +527,7 @@ func (c *Config) Render() string {
 		}
 	}
 	for _, u := range c.Users {
-		if u.BuiltinAdmin && u.Role == "admin" {
+		if u.BuiltinAdmin && u.Role == RoleAdmin {
 			continue
 		}
 		w("username %s", u.Name)
@@ -556,7 +549,7 @@ func (c *Config) Render() string {
 		w("security %s", c.Security)
 		sep()
 	}
-	c.renderIPsec(w, sep)
+	c.renderIPsec(w, sep, sec)
 	for _, f := range c.FilterMaps {
 		for _, r := range f.Rules {
 			w("filter-map ipv4 %s %d", f.Name, r.Seq)
@@ -635,10 +628,10 @@ func (c *Config) Render() string {
 			w(" ip ospf authentication %s", i.OSPFAuth)
 		}
 		for _, k := range i.OSPFKeys {
-			w(" ip ospf message-digest-key %d md5 %s", k.ID, k.Key)
+			w(" ip ospf message-digest-key %d md5 %s", k.ID, sec(k.Key))
 		}
 		if i.OSPFSimple != "" {
-			w(" ip ospf authentication-key %s", i.OSPFSimple)
+			w(" ip ospf authentication-key %s", sec(i.OSPFSimple))
 		}
 		if i.OSPFCost > 0 {
 			w(" ip ospf cost %d", i.OSPFCost)
@@ -756,14 +749,6 @@ func (c *Config) Render() string {
 	}
 	b.WriteString("end\n")
 	return b.String()
-}
-
-// rangeStr prints a range; a single-address pool is just the address.
-func rangeStr(from, to string) string {
-	if from == to {
-		return from
-	}
-	return from + "-" + to
 }
 
 // CanonNet is a network prefix without host bits ("192.168.1.5/24" → "192.168.1.0/24").

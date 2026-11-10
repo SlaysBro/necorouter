@@ -60,6 +60,7 @@ cp "$HERE/README.md" "$W/" 2>/dev/null || true
 unshare -m -p -f --mount-proc env W="$W" SH="$SH" LOG="$LOG" sh -c '
 set -eu
 mount -t tmpfs tmpfs /etc
+mount -t tmpfs tmpfs /run                   # no systemd here: installer must pick OpenRC, not the host systemd
 printf "NAME=\"Alpine Linux\"\nID=alpine\nVERSION_ID=3.20.3\n" > /etc/os-release
 mkdir -p /etc/ssh /etc/ssh/sshd_config.d /etc/init.d /var/lib/necorouter
 mount -t tmpfs tmpfs /var/lib/necorouter     # router state must not survive the test

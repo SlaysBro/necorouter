@@ -62,6 +62,24 @@ type Editor struct {
 	History []string
 	Secret  bool // password input: no echo, no history, no hints
 	plain   *bufio.Reader
+	pending []byte // typed-ahead input: bytes received while a command ran (see Typeahead)
+}
+
+// Typeahead gives back input that arrived while a command was running (for example the lines
+// of a pasted configuration). The editor reads it before the terminal, so nothing is lost.
+func (e *Editor) Typeahead(b []byte) {
+	e.pending = append(e.pending, b...)
+}
+
+// readByte returns the next input byte: typed-ahead bytes first, then the terminal.
+func (e *Editor) readByte(b []byte) error {
+	if len(e.pending) > 0 {
+		b[0] = e.pending[0]
+		e.pending = e.pending[1:]
+		return nil
+	}
+	_, err := e.In.Read(b)
+	return err
 }
 
 func NewEditor(in *os.File, out io.Writer) *Editor {
@@ -99,7 +117,7 @@ func tabList(opts []string) string {
 
 func (e *Editor) readRune() (rune, error) {
 	var buf [4]byte
-	if _, err := e.In.Read(buf[:1]); err != nil {
+	if err := e.readByte(buf[:1]); err != nil {
 		return 0, err
 	}
 	if buf[0] < 0x80 {
@@ -107,7 +125,7 @@ func (e *Editor) readRune() (rune, error) {
 	}
 	n := 1
 	for !utf8.FullRune(buf[:n]) && n < 4 {
-		if _, err := e.In.Read(buf[n : n+1]); err != nil {
+		if err := e.readByte(buf[n : n+1]); err != nil {
 			return 0, err
 		}
 		n++
@@ -302,9 +320,9 @@ func (e *Editor) ReadLine(prompt string, h Hooks) (string, error) {
 
 // WatchInterrupt polls input (terminal in raw mode) until stop is closed,
 // and calls onIntr on Ctrl-C. Other bytes typed while the command runs
-// are discarded. Returns no later than ~50 ms after stop is closed,
+// go to keep (typeahead). Returns no later than ~50 ms after stop is closed,
 // without reading anything extra.
-func WatchInterrupt(f *os.File, stop <-chan struct{}, onIntr func()) {
+func WatchInterrupt(f *os.File, stop <-chan struct{}, onIntr func(), keep func([]byte)) {
 	fd := int(f.Fd())
 	buf := make([]byte, 64)
 	for {
@@ -330,10 +348,16 @@ func WatchInterrupt(f *os.File, stop <-chan struct{}, onIntr func()) {
 		if err != nil || m <= 0 {
 			return
 		}
+		var rest []byte
 		for _, b := range buf[:m] {
 			if b == 3 {
 				onIntr()
+			} else {
+				rest = append(rest, b)
 			}
+		}
+		if keep != nil && len(rest) > 0 {
+			keep(rest) // typed while the command runs: the editor gets it back, nothing is dropped
 		}
 	}
 }

@@ -155,7 +155,7 @@ func TSList(s string) []string {
 }
 
 // renderIPsec prints the IPsec part of running-config (before filter-map: the rules refer to the maps).
-func (c *Config) renderIPsec(w func(string, ...any), sep func()) {
+func (c *Config) renderIPsec(w func(string, ...any), sep func(), sec func(string) string) {
 	if c.IPsecIKE {
 		w("crypto-ipsec ike enable")
 		sep()
@@ -174,13 +174,13 @@ func (c *Config) renderIPsec(w func(string, ...any), sep func()) {
 				w("  proposal %s", p.P1Proposal)
 			}
 			if p.PSK != "" {
-				w("  auth pre-shared-key %s", p.PSK)
+				w("  auth pre-shared-key %s", sec(p.PSK))
 			}
 			if p.LocalPSK != nil {
-				w("  local-psk id %s data %s", p.LocalPSK.ID, p.LocalPSK.Data)
+				w("  local-psk id %s data %s", p.LocalPSK.ID, sec(p.LocalPSK.Data))
 			}
 			if p.RemotePSK != nil {
-				w("  remote-psk id %s data %s", p.RemotePSK.ID, p.RemotePSK.Data)
+				w("  remote-psk id %s data %s", p.RemotePSK.ID, sec(p.RemotePSK.Data))
 			}
 		}
 		if p.Protocol != "" || p.P2Proposal != "" || p.LocalTS != "" || p.RemoteTS != "" || p.Rekey > 0 {

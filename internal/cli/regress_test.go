@@ -101,7 +101,7 @@ ip nat source static 10.0.0.1 10.0.0.2
 // An incomplete NAT command must be rejected by the parser, not produce a "truncated" line in the config.
 func TestIncompleteNATDynamicRejected(t *testing.T) {
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	var sb strings.Builder
 	s.Exec("ip nat source dynamic inside-to-outside pool X overload", &sb)
 	s.Exec("ip nat source dynamic inside-to-outside pool X", &sb)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"necorouter/internal/proto"
 	"net/netip"
 	"os"
 	"strings"
@@ -79,10 +80,10 @@ func (r *Router) SaveDesc(desc string) error {
 	return r.writeStartup(hdr + r.Cfg.Render())
 }
 
-// writeStartup is the only place where startup-config is overwritten: with config-history
+// writeStartup is the only place where startup-config is overwritten: with config-features
 // enabled, the previous file is first moved to history.
 func (r *Router) writeStartup(text string) error {
-	if r.Cfg.Features["config-history"] {
+	if r.Cfg.Features["config-features"] {
 		if err := archiveStartup(r.P, keepOr(r.Cfg.StartupKeep)); err != nil {
 			return err // do not overwrite startup if the old copy could not be saved
 		}
@@ -90,10 +91,20 @@ func (r *Router) writeStartup(text string) error {
 	return writeAtomic(r.P.Startup(), text)
 }
 
+// needRole: the command is allowed only to the listed roles (an empty role is never allowed).
+func (s *Session) needRole(roles ...string) error {
+	for _, r := range roles {
+		if s.Role == r {
+			return nil
+		}
+	}
+	return fmt.Errorf("access denied: role %q is not allowed to do this", s.Role)
+}
+
 // needAdmin: the configuration contains secrets (OSPF keys), so viewing it and
 // privileged mode are available only to the admin role.
 func (s *Session) needAdmin() error {
-	if s.Role != "admin" {
+	if s.Role != config.RoleAdmin {
 		return fmt.Errorf("access denied: role %q is not allowed to do this (requires role admin)", s.Role)
 	}
 	return nil
@@ -121,8 +132,8 @@ func (r *Router) LoadStartup() []string {
 
 // Replay executes configuration text; returns lines with errors.
 func (r *Router) Replay(text string) []string {
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true}
-	s.frames = []frame{{kind: "config"}}
+	s := &Session{R: r, User: "root", Role: config.RoleAdmin, noApply: true}
+	s.frames = []frame{{kind: modeConfig}}
 	var errs []string
 	for n, ln := range strings.Split(text, "\n") {
 		t := strings.TrimSpace(ln)
@@ -133,10 +144,10 @@ func (r *Router) Replay(text string) []string {
 			break
 		}
 		if ln[0] != ' ' && ln[0] != '\t' {
-			s.frames = []frame{{kind: "config"}}
+			s.frames = []frame{{kind: modeConfig}}
 		}
 		var sb strings.Builder
-		s.Exec(t, &sb)
+		s.Exec(ln, &sb) // the raw line: its indentation tells a sub-mode line from a top-level one
 		if o := strings.TrimSpace(sb.String()); strings.Contains(o, "% ") {
 			errs = append(errs, fmt.Sprintf("line %d (%s): %s", n+1, t, strings.ReplaceAll(o, "\n", " ")))
 		}
@@ -150,13 +161,14 @@ func (r *Router) Replay(text string) []string {
 type frame struct{ kind, obj, obj2 string }
 
 type Session struct {
-	R       *Router
-	User    string
-	Role    string
-	frames  []frame
-	noApply bool
-	W       io.Writer
-	seen    map[string]bool // warnings already shown in this session
+	R           *Router
+	User        string
+	Role        string
+	frames      []frame
+	noApply     bool
+	W           io.Writer
+	seen        map[string]bool // warnings already shown in this session
+	warnPending bool            // a configuration change happened; its warnings are shown when the block ends
 
 	TTY bool // the client is a real terminal (allows animation)
 
@@ -199,7 +211,7 @@ func (s *Session) begin() context.Context {
 }
 
 func NewSession(r *Router, user *config.User) *Session {
-	return &Session{R: r, User: user.Name, Role: user.Role, frames: []frame{{kind: "exec"}}}
+	return &Session{R: r, User: user.Name, Role: user.Role, frames: []frame{{kind: modeExec}}}
 }
 
 func (s *Session) top() frame { return s.frames[len(s.frames)-1] }
@@ -219,16 +231,16 @@ func (s *Session) Printf(f string, a ...any) {
 }
 
 func isCfg(kind string) bool {
-	return kind != "exec" && kind != "priv"
+	return kind != modeExec && kind != modePriv
 }
 
 var suffixes = map[string]string{
-	"exec": ">", "priv": "#", "config": "(config)#", "if": "(config-if)#",
-	"port": "(config-port)#", "si": "(config-service-instance)#",
-	"qospolicy": "(config-service-policy)#",
-	"ospf":      "(config-router)#", "user": "(config-user)#", "dhcp": "(config-dhcp-server)#", "secprof": "(config-security-profile)#",
-	"fmap": "(filter-map-ipv4)#", "ipprof": "(config-ipsec-profile)#", "ikep1": "(config-ike-phase1)#",
-	"ikep2": "(config-ike-phase2)#", "cmap": "(config-crypto-map)#", "rmap": "(config-route-map)#",
+	modeExec: ">", modePriv: "#", modeConfig: "(config)#", modeIf: "(config-if)#",
+	modePort: "(config-port)#", modeSI: "(config-service-instance)#",
+	modeQoSPolicy: "(config-service-policy)#",
+	modeOSPF:      "(config-router)#", modeUser: "(config-user)#", modeDHCP: "(config-dhcp-server)#", modeSecProf: "(config-security-profile)#",
+	modeFMap: "(filter-map-ipv4)#", modeIPProf: "(config-ipsec-profile)#", modeIKEP1: "(config-ike-phase1)#",
+	modeIKEP2: "(config-ike-phase2)#", modeCMap: "(config-crypto-map)#", modeRMap: "(config-route-map)#",
 }
 
 func modeSuffix(kind string) string {
@@ -270,21 +282,35 @@ func (s *Session) Prompt() string {
 	return h + modeSuffix(s.top().kind)
 }
 
-func (s *Session) rootsFor(kind string) []*Node { return s.prune(trees[kind]) }
+func (s *Session) rootsFor(kind string) []*Node { return s.prune(trees[kind], kind) }
 
-// prune removes commands whose gate is closed. Configuration replay (noApply) ignores gates.
-func (s *Session) prune(nodes []*Node) []*Node {
+// permitted is the one rule for a command in a mode: its gate is open and the mode offers it to the role.
+// prune uses it to decide what is offered (help, completion), Exec uses it to decide what may run. A
+// configuration replay (noApply) is not limited by it.
+func (s *Session) permitted(n *Node, mode string) bool {
+	if s.noApply || n == nil {
+		return true
+	}
+	if n.Gate != nil && !n.Gate(s) {
+		return false
+	}
+	return n.visibleIn(mode, s.Role)
+}
+
+// prune removes the commands that are not offered in the mode to this session: their gate is closed or
+// their visibility for the mode does not include the role. Configuration replay (noApply) ignores both.
+func (s *Session) prune(nodes []*Node, mode string) []*Node {
 	if s.noApply {
 		return nodes
 	}
 	var out []*Node
 	for _, n := range nodes {
-		if n.Gate != nil && !n.Gate(s) {
+		if !s.permitted(n, mode) {
 			continue
 		}
 		if len(n.Kids) > 0 {
 			c := *n
-			c.Kids = s.prune(n.Kids)
+			c.Kids = s.prune(n.Kids, mode)
 			n = &c
 		}
 		out = append(out, n)
@@ -293,12 +319,26 @@ func (s *Session) prune(nodes []*Node) []*Node {
 }
 
 // resolve handles the "do " prefix in configuration modes.
+// placeLine decides where a line typed in a mode runs. A top-level configuration command typed without
+// indentation inside a sub-mode runs in the configuration mode, and the sub-mode is left: the same rule
+// as in a configuration file, where a line that starts at column 0 belongs to the top level. Any other
+// line runs in the mode where it was typed. leave reports that the sub-mode must be left.
+func (s *Session) placeLine(kind string, toks []string, indented bool) (string, descent, bool) {
+	d := descend(s.rootsFor(kind), toks)
+	if d.errKind != "" && isCfg(kind) && kind != modeConfig && !indented {
+		if dc := descend(s.rootsFor(modeConfig), toks); dc.errKind == "" {
+			return modeConfig, dc, true
+		}
+	}
+	return kind, d, false
+}
+
 func (s *Session) resolve(line string) (kind, rest string) {
 	kind = s.top().kind
 	if isCfg(kind) {
 		t := strings.TrimLeft(line, " \t")
 		if strings.HasPrefix(t, "do ") || strings.HasPrefix(t, "do\t") {
-			return "priv", line[len(line)-len(t)+2:]
+			return modePriv, line[len(line)-len(t)+2:]
 		}
 	}
 	return kind, line
@@ -339,6 +379,7 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 		s.monOut = w // journal messages go to the same stream as command output
 	}
 	s.monMu.Unlock()
+	indented := line != "" && (line[0] == ' ' || line[0] == '\t') // a sub-mode line (see the fallback below)
 	line = strings.TrimSpace(line)
 	if s.pending != nil { // answer to a [y/N] question
 		p := s.pending
@@ -362,7 +403,7 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 		return false
 	}
 	kind, rest := s.resolve(line)
-	// output modifiers: show ... | include TEXT, | redirect FILE, > FILE
+	// output modifiers of show: | include, | exclude, | begin, | grep, | nopager (EcoRouter has no output redirection)
 	pre := line[:len(line)-len(rest)] // the "do " prefix
 	var mods []pipeMod
 	if strings.ContainsAny(rest, "|>") {
@@ -379,7 +420,17 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 	}
 	s.rawLine = rest // original command text: mge takes the quotes that the tokenizer strips
 	toks, _ := tokenize(rest)
-	d := descend(s.rootsFor(kind), toks)
+	var d descent
+	var leave bool
+	kind, d, leave = s.placeLine(kind, toks, indented)
+	if leave { // the sub-mode is left: the top level of the configuration is the current mode
+		for i, f := range s.frames {
+			if f.kind == modeConfig {
+				s.frames = s.frames[:i+1]
+				break
+			}
+		}
+	}
 	s.audit(line, pre, toks, d)
 	if d.errKind != "" {
 		off := len(line) - len(rest)
@@ -399,15 +450,7 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 		return false
 	}
 	if len(mods) > 0 {
-		for _, m := range mods {
-			if m.kind == "redirect" {
-				if err := s.needAdmin(); err != nil {
-					s.Printf("%% %s\n", err.Error())
-					return false
-				}
-			}
-		}
-		fw, err := newFilterWriter(w, mods, s.R.P.FilesDir())
+		fw, err := newFilterWriter(w, mods)
 		if err != nil {
 			s.Printf("%% %s\n", err.Error())
 			return false
@@ -420,19 +463,25 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 	}
 	noPager := false
 	for _, m := range mods {
-		if m.kind == "nopager" || m.kind == "redirect" {
+		if m.kind == "nopager" {
 			noPager = true
 		}
 	}
-	for _, t := range toks { // show log follow — endless output, no pager needed
+	follow := false
+	for _, t := range toks { // show log follow: an endless stream, shown as a live page
 		if strings.EqualFold(t, "follow") {
-			noPager = true
+			follow = true
 		}
 	}
-	if s.Ctl != nil && s.TTY && s.PageLen >= 0 && !noPager && len(toks) > 0 {
+	if s.Ctl != nil && s.TTY && !noPager && len(toks) > 0 {
 		if n, _ := pick(s.rootsFor(kind), toks[0], false); n != nil && n.Word == "show" {
-			s.Ctl("page", s.PageLen)
-			defer s.Ctl("endpage", 0)
+			if follow {
+				s.Ctl(proto.CtlStream, 0)
+				defer s.Ctl(proto.CtlEndStream, 0)
+			} else if s.PageLen >= 0 {
+				s.Ctl(proto.CtlPage, s.PageLen)
+				defer s.Ctl(proto.CtlEndPage, 0)
+			}
 		}
 	}
 	var h Handler
@@ -447,8 +496,13 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 		s.Printf("%% Incomplete command.\n")
 		return false
 	}
+	if !s.permitted(d.last, kind) {
+		// the same rule that hides the command from '?': a command runs only where it is offered
+		s.Printf("%% Invalid input detected at '^' marker.\n")
+		return false
+	}
 	before := ""
-	cfgMode := isCfg(s.top().kind) && kind != "priv"
+	cfgMode := isCfg(s.top().kind) && kind != modePriv
 	if cfgMode {
 		before = s.R.Cfg.Fingerprint()
 	}
@@ -461,6 +515,12 @@ func (s *Session) Exec(line string, w io.Writer) (quit bool) {
 		return false
 	}
 	if cfgMode && !s.noApply && s.R.Cfg.Fingerprint() != before {
+		s.warnPending = true
+	}
+	if s.warnPending && !isCfg(s.top().kind) {
+		// the block is over (back in privileged mode): show the warnings that still hold, once each,
+		// so that a password or a server given on the next line does not leave a stale warning behind
+		s.warnPending = false
 		cur := map[string]bool{}
 		for _, w := range s.R.Mgr.Reconcile(s.R.Cfg) {
 			cur[w] = true

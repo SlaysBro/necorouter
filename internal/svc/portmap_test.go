@@ -3,6 +3,7 @@ package svc
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,44 @@ func (f fakeSys) nic(t *testing.T, name, mac string, phys bool, extra ...string)
 	}
 }
 func (f fakeSys) rm(name string) { _ = os.RemoveAll(filepath.Join(f.dir, name)) }
+
+// speed writes the link speed of a card in Mbit/s (sysfs format).
+func (f fakeSys) speed(t *testing.T, name string, mbps int) {
+	t.Helper()
+	_ = os.WriteFile(filepath.Join(f.dir, name, "speed"), []byte(strconv.Itoa(mbps)+"\n"), 0o644)
+}
+
+func TestPortNamesFollowSpeed(t *testing.T) {
+	f := fakeSys{t.TempDir()}
+	f.nic(t, "eth0", "52:54:00:00:01:00", true)
+	f.speed(t, "eth0", 100)
+	f.nic(t, "eth1", "52:54:00:00:01:01", true)
+	f.speed(t, "eth1", 1000)
+	f.nic(t, "eth2", "52:54:00:00:01:02", true)
+	f.speed(t, "eth2", 10000)
+	f.nic(t, "eth3", "52:54:00:00:01:03", true) // no speed file: link state unknown
+	f.nic(t, "eth4", "52:54:00:00:01:04", true)
+	f.speed(t, "eth4", 1000)
+	pf := filepath.Join(t.TempDir(), "ports.map")
+
+	pm := loadPortMap(pf, f.dir)
+	for port, nic := range map[string]string{"e0": "eth0", "ge0": "eth1", "te0": "eth2", "te1": "eth3", "ge1": "eth4"} {
+		if pm.NIC(port) != nic {
+			t.Fatalf("%s: got %q, want %q (%v)", port, pm.NIC(port), nic, pm.m)
+		}
+	}
+	if got := strings.Join(pm.Names(), ","); got != "e0,ge0,te0,te1,ge1" {
+		t.Fatalf("order: %s", got)
+	}
+}
+
+func TestPortPrefix(t *testing.T) {
+	for speed, want := range map[int]string{0: "te", -1: "te", 10: "e", 100: "e", 1000: "ge", 2500: "ge", 10000: "te", 40000: "te"} {
+		if got := portPrefix(speed); got != want {
+			t.Fatalf("speed %d: %s, want %s", speed, got, want)
+		}
+	}
+}
 
 func TestPortMapAutodiscovery(t *testing.T) {
 	f := fakeSys{t.TempDir()}

@@ -24,7 +24,7 @@ router ospf 1
 
 func TestOSPFNetworkNoAndBadInput(t *testing.T) {
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	run := func(l string) string { var sb strings.Builder; s.Exec(l, &sb); return sb.String() }
 	run("router ospf 1")
 	run("network 10.0.0.0/24 area 0")
@@ -49,7 +49,7 @@ func TestOSPFNetworkNoAndBadInput(t *testing.T) {
 
 func TestOSPFHelp(t *testing.T) {
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	s.Exec("router ospf 1", nil)
 	for line, want := range map[string][]string{
 		"network ":                         {"A.B.C.D/M", "A.B.C.D"},
@@ -85,7 +85,7 @@ ip nat pool R 10.0.0.1-10.0.0.9
 	}
 	// invalid values are still rejected
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	for _, bad := range []string{"ip pool x 10.0.0.9-10.0.0.1", "ip pool x 10.0.0.256", "ip pool x abc"} {
 		var sb strings.Builder
 		s.Exec(bad, &sb)
@@ -107,7 +107,7 @@ interface c
 `)
 	mustContain(t, out, " ip address 10.1.1.1/24\n", " ip address 10.2.2.2/30\n", " ip address 10.4.4.4/24\n")
 	mustNotContain(t, out, "10.3.3.3")
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	s.Exec("interface a", nil)
 	for _, c := range []struct{ line, hint string }{
 		{"ip address 10.1.1.1/243", "prefix length '243'"},

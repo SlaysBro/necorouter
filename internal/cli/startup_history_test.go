@@ -27,8 +27,8 @@ func TestStartupHistoryGateAndRotation(t *testing.T) {
 	if out := run("startup-history keep 2"); !strings.Contains(out, "%") {
 		t.Fatalf("hidden feature accepted before service: %q", out)
 	}
-	if out := run("feature config-history"); strings.Contains(out, "%") {
-		t.Fatalf("feature config-history rejected: %q", out)
+	if out := run("feature config-features"); strings.Contains(out, "%") {
+		t.Fatalf("feature config-features rejected: %q", out)
 	}
 	run("startup-history keep 2")
 	if r.Cfg.StartupKeep != 2 {
@@ -57,7 +57,7 @@ func TestStartupHistoryGateAndRotation(t *testing.T) {
 	}
 
 	// disabling: the setting stays, files are not deleted, no new copies are created
-	run("no feature config-history")
+	run("no feature config-features")
 	if r.Cfg.StartupKeep != 2 {
 		t.Fatalf("keep must survive disabling: %d", r.Cfg.StartupKeep)
 	}
@@ -79,18 +79,18 @@ func TestStartupHistoryConfigRoundTrip(t *testing.T) {
 	r := newTestRouter(t)
 	s := NewSession(r, &config.User{Name: "root", Role: "admin"})
 	var sb strings.Builder
-	for _, l := range []string{"enable", "configure terminal", "feature config-history", "startup-history keep 5", "exit", "exit"} {
+	for _, l := range []string{"enable", "configure terminal", "feature config-features", "startup-history keep 5", "exit", "exit"} {
 		s.Exec(l, &sb)
 	}
 	text := r.Cfg.Render()
-	if !strings.Contains(text, "feature config-history") || !strings.Contains(text, "startup-history keep 5") {
+	if !strings.Contains(text, "feature config-features") || !strings.Contains(text, "startup-history keep 5") {
 		t.Fatalf("features not rendered:\n%s", text)
 	}
 	r2 := newTestRouter(t)
 	if errs := r2.Replay(text); len(errs) > 0 {
 		t.Fatalf("replay errors: %v", errs)
 	}
-	if !r2.Cfg.Features["config-history"] || r2.Cfg.StartupKeep != 5 {
+	if !r2.Cfg.Features["config-features"] || r2.Cfg.StartupKeep != 5 {
 		t.Fatalf("features lost on replay: %+v keep=%d", r2.Cfg.Features, r2.Cfg.StartupKeep)
 	}
 }
@@ -108,7 +108,7 @@ func TestStartupHistoryHiddenInHelp(t *testing.T) {
 	if out := s.Help(""); strings.Contains(out, "startup-history") {
 		t.Fatalf("feature command leaked into help before enabling:\n%s", out)
 	}
-	s.Exec("feature config-history", &sb)
+	s.Exec("feature config-features", &sb)
 	if out := s.Help(""); !strings.Contains(out, "startup-history") {
 		t.Fatalf("feature missing from help after feature:\n%s", out)
 	}

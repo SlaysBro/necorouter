@@ -1,5 +1,66 @@
 # Changelog
 
+## Unreleased
+
+- Remove the leftover code and tests of copying over SSH (`internal/cli/transfer.go`): the commands were already removed from the tree, and their tests failed in CI.
+- Remove unused code: the unwired backup storage code (`internal/cli/backups.go`), the helpers `logx.Warnf`, `logx.Errorf`, `logx.Fatalf`, `config.ValidRole` and `Paths.FilesDir` (tests now call the logger and the role list directly), the `roleOK` and `viciEvUnknown` declarations, and the `askpass` subcommand of the binary (it served only the removed SSH copy).
+- Ports of new network cards are named by speed: `e0` (up to 100 Mbit/s), `ge0` (1 Gbit/s), `te0` (10 Gbit/s and faster, or speed unknown). Names already in `ports.map` are kept.
+- `update` installs the installer files of the release (`necorouter-packaging.tar.gz`, checked against `SHA256SUMS`) and runs that installer. Releases without the archive update only the binary.
+- The installer creates `/usr/local/share/doc/necorouter` before copying the README.
+- The release workflow publishes `necorouter-packaging.tar.gz` next to the binaries.
+- Remove the handling of data from earlier versions: the single-range `from`/`to` fields of IP and NAT pools (only `ranges` remain), the restore of shells of accounts that have no record, and the README note about upgrading an old installer.
+- Tests: the interactive and installer tests run in private namespaces (`/etc` copied to tmpfs, `/run` and state directories empty), so they do not change the runner's accounts or services. A daemon that does not open its socket fails the test with its stack dump.
+
+## v0.23-beta.1
+
+- Security: access to admin-only commands is decided at the command node (gate and visibility), and the handlers no longer repeat the role check. `terminal monitor` and `show ip prefix-list` are now closed to other roles at their node; before, `terminal monitor` depended on a check inside its handler. The explicit list of admin-only commands is tested (closed for noc and helpdesk, open to admin, and a mutation of the gate is caught).
+- Output redirection to a file (`> file`, `| redirect FILE`) is removed: EcoRouter has none. The filters `| include`, `| exclude`, `| begin`, `| grep` and `| nopager` stay.
+- Known differences from the EcoRouter reference, kept on purpose: `noc` cannot see the startup configuration, saved files or features, and sees the running configuration with the secrets hidden; `copy empty-config running-config` needs no feature (it is the factory-reset command).
+- `helpdesk` has `disable` and `help` in user mode, and `help` in privileged mode, as in the EcoRouter table.
+- `show running-config` is offered to `noc` in both modes. The secrets are shown as `*****` for `noc`: OSPF keys (md5 and simple), IPsec pre-shared keys, the enable password hash. `admin` sees them as before.
+- A setting that needs a feature is kept in the configuration when it is loaded from a file, and takes effect once the feature line (`feature config-features`) is in the configuration (`autosave interval` is the example).
+- Warnings of a configuration change (missing password, DHCP server not bound) are shown once, when the change block ends, so a value given on the next line removes the warning.
+- `show log` is for admin only in both modes (the log may hold command lines). `noc` no longer sees it.
+- `show security-profile`, `show route-map` and `show service-policy` are shown to `noc` as the command table says; their handlers no longer refuse it (the rules hold no secrets).
+- A top-level configuration command typed without indentation inside a sub-mode (`ip pool`, `ip route`, `ip nat ...`, `dhcp-server`) is taken from the configuration mode, and the sub-mode is left; indented lines stay in their sub-mode, also in configuration files (a file is replayed with the same rule). The example configurations apply in full.
+- `show banner startup` shows whether the pre-login banner (console and SSH) is enabled and its text from `/etc/necorouter/banner`.
+- Pasting several configuration lines at once works: the lines typed while a command runs are kept and executed in order instead of being dropped.
+- `copy empty-config running-config` no longer needs `feature config-features`; it is shown by `?` for admin in privileged mode.
+- Feature switches: `feature config-history`, `feature config-manage`, `feature config-journal` and `feature ssh-copy` are replaced by one switch, `feature config-features`. It enables the startup-config history and autosave, copying between files and into the running configuration, deleting files, the diff and the operations journal.
+- New with `config-features`: `startup-history keep N` (keep the last N copies of startup-config when it is overwritten, default 10); `autosave` and `autosave interval MIN` (save the running configuration to the autosave history every MIN minutes, default 5, only when it differs from startup-config); `show config history`, `show config diff A B`, `show config journal [N]`, `delete config file crash-config`.
+- `write description TEXT` writes the configuration to NV memory with a description, shown in the history list.
+- `copy startup-config running-config` (admin, privileged mode) replaces the running configuration with startup-config and applies it.
+- `show config`, `show files` and the `show` commands for interfaces and routing are now privileged-mode commands; the user mode keeps the status commands only, as in the table above.
+- Long `show` output opens on a separate full-screen page; on exit the console comes back as it was.
+- `show log follow` opens a live page that scrolls by itself (FOLLOW); scrolling up pauses it (PAUSED), G or End returns to the end, q or Ctrl-C leaves the page and stops the command.
+- Remove configuration backups: `copy startup-config storage`, `show backups`, `delete backup storage`.
+- Remove copying over SSH: `copy scp …`, `copy sftp …`, `copy sftp file`, and `feature ssh-copy`.
+- `clear` no longer clears the screen (Ctrl-L does); `clear dhcp-server clients` is a privileged-mode command for admin.
+- `show` is split by mode as in the EcoRouter reference: user mode shows only the commands for the role, privileged mode adds the rest; the commands that are not in the reference (`clock`, `config`, `features`, `services`, `crypto-ipsec`, `service-policy`) exist in privileged mode only.
+- Roles follow the EcoRouter table: `noc` enters privileged mode, `helpdesk` enters it with ping, traceroute and terminal only; commands a role may not use are reported as invalid input.
+- `traceroute` is a privileged-mode command, as in EcoRouter.
+- `show dhcp-profile` shows the DHCP profile configuration, as in EcoRouter; the leases stay with `show dhcp-server clients` (privileged mode, an extension).
+
+- Fix `show config history`: the description column no longer shows the comment line `!` of autosave copies.
+- `copy file NAME` offers only saved files and the startup-config and running-config targets; the duplicate `startup`, `crash` and `crash-config` entries are removed from it, and `delete config file` lists `crash-config` once.
+- Fix `ntp synchronize`: chronyc talks to chronyd over its Unix socket, so `makestep` is no longer refused with "501 Not authorised".
+- Tab on an empty line no longer lists commands.
+- `username ?` no longer lists user names; they are offered by Tab only.
+- Documentation: README reorganised (contents, installation after the overview); the reference site is rewritten.
+
+### Internal (v0.23-beta.1)
+
+- Command visibility is set on each command (`For(mode, roles...)`), not in separate tables; a show command missing from every mode fails the tests.
+- Role names are constants in the `config` package.
+- The command tree in `docs/index.html` is generated (`make docs`), and `make test` fails if the page is out of date.
+- Tests check that every top-level configuration command works from every configuration mode, and that every visible role is known.
+- The live page of `show log follow` is an explicit state machine (FOLLOW, PAUSED) with tests on every transition.
+- One access rule (`permitted`): a command is offered and run by the same check; a command is never run where it is not offered.
+- Roles are declared on the command (`For`); `Gate` is left for features only. The access table in the documentation is generated from these declarations (`make docs`) and checked by the tests.
+- Sub-modes, the client-server operations and the control signals are constants (`internal/proto` and `modes.go`), not strings.
+- `commands.go` is split by mode and object: `tree_exec.go`, `tree_config.go`, `tree_submodes.go`, `tree_nav.go`, one `tree_*.go` per object, `exec_cmds.go`, `helpers.go`; the build order of the trees is explicit (`buildUserModes`, `buildConfig`, `buildSubModes`).
+- CI (`.github/workflows/ci.yml`): gofmt, generated documentation, vet, unit tests, both builds, end-to-end tests with root.
+
 ## v0.22-beta.2
 
 - Allow comma-separated IPv4 addresses and ranges in `ip pool` and `ip nat pool`; pass multiple ranges through DHCP, NAT, and running-config.

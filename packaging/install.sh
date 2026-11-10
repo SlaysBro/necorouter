@@ -12,7 +12,7 @@
 # OpenRC/Alpine: rc-update add default; rc-service start). --no-enable only installs.
 set -eu
 
-BIN_SRC=""; MODE=download; VERSION_TAG=""; PRE=0; ENABLE=1; DEPS=1; UNINSTALL=0; PURGE=0
+BIN_SRC=""; PKG_NEW=""; MODE=download; VERSION_TAG=""; PRE=0; ENABLE=1; DEPS=1; UNINSTALL=0; PURGE=0
 HERE=$(cd "$(dirname "$0")" && pwd)
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -316,6 +316,12 @@ download_release() {
 		echo "checksum mismatch for $asset: not installed" >&2; return 1
 	fi
 	chmod 0755 "$TMPB/$asset"
+	# the release also carries the packaging files of its installer; the new installer runs from them
+	if fetch "$base/necorouter-packaging.tar.gz" "$TMPB/necorouter-packaging.tar.gz" 2>/dev/null; then
+		if (cd "$TMPB" && grep " necorouter-packaging.tar.gz\$" SHA256SUMS > pkg.sum && sha256sum -c pkg.sum >/dev/null 2>&1) && mkdir "$TMPB/pkg" && tar -xzf "$TMPB/necorouter-packaging.tar.gz" -C "$TMPB/pkg"; then
+			PKG_NEW=$TMPB/pkg
+		else echo "WARN: packaging archive of the release is damaged: installer files not updated" >&2; fi
+	fi
 	usable "$TMPB/$asset" || { echo "downloaded $asset does not run on this machine" >&2; return 1; }
 	BIN_SRC="$TMPB/$asset"
 }
@@ -327,6 +333,14 @@ elif [ "$MODE" = build ]; then
 	build_source || exit 1
 else
 	download_release || { echo "Fix: check the network, use --pre/--version TAG, or --local / --build / --bin PATH" >&2; exit 1; }
+	if [ -n "$PKG_NEW" ] && [ -z "${NECOROUTER_REEXEC:-}" ]; then
+		# run the installer of this release, so that /usr/local/share/necorouter/packaging gets its files
+		set -- --bin "$BIN_SRC"
+		[ "$DEPS" = 1 ] || set -- "$@" --no-deps
+		[ "$ENABLE" = 1 ] || set -- "$@" --no-enable
+		echo "==> running the installer of this release"
+		NECOROUTER_REEXEC=1 exec sh "$PKG_NEW/install.sh" "$@"
+	fi
 fi
 echo "==> using binary: $BIN_SRC"
 
@@ -397,6 +411,7 @@ fi
 # a file for sshd and /etc/issue for the console (getty/login); visible before root login too
 "$BINDIR/necorouter" issue sync || echo "WARN: could not write the banner to /etc/issue"
 motd_sync || echo "WARN: could not clear /etc/motd"
+mkdir -p /usr/local/share/doc/necorouter
 for f in README.md; do [ -f "$HERE/../$f" ] && cp "$HERE/../$f" /usr/local/share/doc/necorouter/ || true; done
 
 # ---- account tool check ----

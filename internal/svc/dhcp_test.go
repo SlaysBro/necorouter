@@ -24,7 +24,7 @@ func TestDHCPSingleAddressPool(t *testing.T) {
 	t.Cleanup(m.Env.Sup.StopAll)
 
 	c := config.New()
-	c.IPPools = []*config.IPPool{{Name: "one", From: "192.168.200.5", To: "192.168.200.5"}}
+	c.IPPools = []*config.IPPool{{Name: "one", Ranges: []string{"192.168.200.5"}}}
 	c.DHCP = []*config.DHCPServer{{ID: 1, Pool: "one", Mask: "28", Gateway: "192.168.200.1"}}
 	c.Ifaces = []*config.Iface{{Name: "vl200", Addrs: []string{"192.168.200.1/28"}, DHCP: 1}}
 	c.Ports = []*config.Port{{Name: "te0", SIs: []*config.SI{{Name: "te0/vl200", Encap: "untagged", Connect: "vl200"}}}}

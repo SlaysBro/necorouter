@@ -21,8 +21,8 @@ func logSetup(t *testing.T) (*Router, *Session) {
 	logx.SetDefault(l)
 	t.Cleanup(func() { logx.SetDefault(nil); _ = l.Close() })
 	logx.Infof("DHCP", "alpha one")
-	logx.Warnf("OSPF", "beta two")
-	logx.Errorf("NAT", "gamma three")
+	logx.Logf(0, logx.LevelWarn, "OSPF", "beta two")
+	logx.Logf(0, logx.LevelError, "NAT", "gamma three")
 	return r, sessionOn(r, "root")
 }
 
@@ -91,23 +91,17 @@ func TestShowLogModifiers(t *testing.T) {
 	mustContain(t, runCmd(s, "show log | nopager | include alpha"), "alpha")
 	mustContain(t, runCmd(s, "show log | bogus x"), "% ")
 	mustContain(t, runCmd(s, "show log | include"), "% ")
-	// redirect and the short form
-	if o := runCmd(s, "show log | include alpha | redirect a.log"); strings.TrimSpace(o) != "" {
-		t.Fatalf("redirect printed %q", o)
+	// output redirection is not offered (EcoRouter has none): refused, and no file is written
+	mustContain(t, runCmd(s, "show log | include alpha | redirect a.log"), "Unrecognized modifier")
+	mustContain(t, runCmd(s, "show log > b.log"), "Unrecognized modifier")
+	if _, err := os.Stat(filepath.Join(r.P.Var, "files", "b.log")); err == nil {
+		t.Fatal("a file was written by show log")
 	}
-	data, err := os.ReadFile(filepath.Join(r.P.FilesDir(), "a.log"))
-	if err != nil || !strings.Contains(string(data), "alpha one") || strings.Contains(string(data), "beta") {
-		t.Fatalf("redirect file: %q %v", data, err)
-	}
-	runCmd(s, "show log > b.log")
-	data, _ = os.ReadFile(filepath.Join(r.P.FilesDir(), "b.log"))
-	mustContain(t, string(data), "alpha one", "beta two", "gamma three")
-	mustContain(t, runCmd(s, "show log > ../x"), "% ")
 	// other commands are not affected
 	mustNotContain(t, runCmd(s, "show version | include Hostname"), "% ")
-	// not admin
+	// not admin: the log is not offered to noc at all
 	u := NewSession(r, &config.User{Name: "noc1", Role: "noc"})
-	mustContain(t, runCmd(u, "show log"), "access denied")
+	mustContain(t, runCmd(u, "show log"), "% Invalid input")
 }
 
 func TestAuditMasksSecrets(t *testing.T) {
@@ -120,16 +114,17 @@ func TestAuditMasksSecrets(t *testing.T) {
 	mustContain(t, out, "[IMISH] AUDIT [root] hostname r1", "AUDIT [root] enable password ***")
 	mustNotContain(t, out, "Abc12345")
 	_ = r
-	if h := s.Help("show log | "); !strings.Contains(h, "redirect") {
-		t.Fatalf("pipe help: %q", h)
-	}
-	if nl, c := s.Complete("show log | red"); !strings.HasSuffix(nl, "redirect ") || c != nil {
-		t.Fatalf("complete: %q %v", nl, c)
+	if h := s.Help("show log | "); strings.Contains(h, "redirect") {
+		t.Fatalf("redirect is offered: %q", h)
 	}
 }
 
 // show log all — all saved entries, including those before boot; without all — only since boot.
 func TestShowLogAllIncludesOlder(t *testing.T) {
+	// the boot time is fixed here: /proc/uptime differs on every host (it is not readable on some)
+	restore := logx.BootTimeFunc
+	logx.BootTimeFunc = func() time.Time { return time.Now().Add(-time.Hour) }
+	t.Cleanup(func() { logx.BootTimeFunc = restore })
 	r, s := logSetup(t)
 	old := "2001-01-02 03:04:05.000000 [info] [OLD]\t-\tancient entry\n"
 	f := filepath.Join(r.P.LogDir(), "necorouter.log")
@@ -142,5 +137,10 @@ func TestShowLogAllIncludesOlder(t *testing.T) {
 	}
 	if out := runCmd(s, "show log"); strings.Contains(out, "ancient entry") {
 		t.Fatalf("show log must hide entries before boot")
+	}
+	// when the boot time is unknown, nothing is hidden (the fallback)
+	logx.BootTimeFunc = func() time.Time { return time.Time{} }
+	if out := runCmd(s, "show log"); !strings.Contains(out, "ancient entry") {
+		t.Fatalf("with an unknown boot time show log must show everything: %q", out)
 	}
 }

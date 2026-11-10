@@ -11,7 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -53,7 +55,6 @@ func (p Paths) History() string     { return p.Etc + "/startup-history" }
 func (p Paths) UpdatePrefs() string { return p.Etc + "/update.json" }
 func (p Paths) Backups() string     { return p.Etc + "/backups" }
 func (p Paths) LogDir() string      { return p.Root + "/var/log/necorouter" }
-func (p Paths) FilesDir() string    { return p.Var + "/files" }
 
 type Env struct {
 	P     Paths
@@ -358,7 +359,8 @@ func (s *Supervisor) StopAll() {
 //
 // ports.map: "port  interface  [MAC]". Entries with a MAC are created by auto-discovery:
 // the port follows the card by MAC (the interface name may change, eth0 → ens3),
-// new network cards get the next free teN without human involvement.
+// new network cards get the next free name without human involvement. The name starts with
+// the card speed: e (up to 100 Mbit/s), ge (up to 1 Gbit/s), te (faster, or speed unknown).
 // An entry without a MAC (two columns) is considered pinned manually and is not changed.
 
 type PortMap struct {
@@ -374,6 +376,21 @@ type PortMap struct {
 type nicInfo struct {
 	name, mac string
 	phys      bool
+	speed     int // Mbit/s from sysfs, 0 when unknown (link down, virtual card)
+}
+
+// portPrefix returns the port name prefix for a card of the given speed in Mbit/s.
+func portPrefix(speed int) string {
+	switch {
+	case speed <= 0:
+		return "te" // unknown speed: the prefix used before speeds were read
+	case speed < 1000:
+		return "e"
+	case speed < 10000:
+		return "ge"
+	default:
+		return "te"
+	}
 }
 
 // scanNICs reads the list of network interfaces from sysfs.
@@ -403,13 +420,15 @@ func scanNICs(sysdir string) []nicInfo {
 		if skip {
 			continue
 		}
+		speed, _ := os.ReadFile(base + "/speed")
+		sp, _ := strconv.Atoi(strings.TrimSpace(string(speed)))
 		mac, _ := os.ReadFile(base + "/address")
 		m := strings.ToLower(strings.TrimSpace(string(mac)))
 		if m == "00:00:00:00:00:00" {
 			m = ""
 		}
 		_, err := os.Stat(base + "/device")
-		out = append(out, nicInfo{name: n, mac: m, phys: err == nil})
+		out = append(out, nicInfo{name: n, mac: m, phys: err == nil, speed: sp})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].name < out[j].name })
 	return out
@@ -471,7 +490,7 @@ func (p *PortMap) Refresh(force bool) {
 			changed = true
 		}
 	}
-	// 2) new network cards get the next free teN
+	// 2) new network cards get the next free name for their speed (e0, ge0, te0, …)
 	used := map[string]bool{}
 	for _, port := range p.names {
 		used[p.m[port]] = true
@@ -489,7 +508,7 @@ func (p *PortMap) Refresh(force bool) {
 			}
 		}
 	}
-	idx := 0
+	next := map[string]int{} // next index per prefix
 	for _, n := range cands {
 		if n.mac != "" {
 			dup := false
@@ -502,10 +521,11 @@ func (p *PortMap) Refresh(force bool) {
 				continue // the card already exists under another name (it was renamed)
 			}
 		}
+		pfx := portPrefix(n.speed)
 		var port string
 		for {
-			port = fmt.Sprintf("te%d", idx)
-			idx++
+			port = fmt.Sprintf("%s%d", pfx, next[pfx])
+			next[pfx]++
 			if p.m[port] == "" {
 				break
 			}
@@ -539,13 +559,18 @@ func (p *PortMap) save() {
 	_ = writeFileAtomic(p.path, []byte(hdr+strings.Join(l, "\n")+"\n"), 0o644)
 }
 
+// portNum orders ports: e0, e1, …, ge0, …, te0, … (other names last).
 func portNum(n string) int {
-	var v int
-	if _, err := fmt.Sscanf(n, "te%d", &v); err != nil {
+	m := portNameRe.FindStringSubmatch(n)
+	if m == nil {
 		return 1 << 30
 	}
-	return v
+	v, _ := strconv.Atoi(m[2])
+	return map[string]int{"e": 0, "ge": 1 << 20, "te": 2 << 20}[m[1]] + v
 }
+
+// portNameRe matches a port name: e, ge or te followed by the index.
+var portNameRe = regexp.MustCompile(`^(e|ge|te)(\d+)$`)
 
 func (p *PortMap) Names() []string {
 	p.Refresh(false)

@@ -86,11 +86,11 @@ func TestHelpEveryNode(t *testing.T) {
 
 func TestHelpNATDynamic(t *testing.T) {
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	for _, l := range []string{"ip nat pool HQ 10.0.0.1-10.0.0.9", "interface isp"} {
 		s.Exec(l, nil)
 	}
-	s.frames = []frame{{kind: "config"}}
+	s.frames = []frame{{kind: modeConfig}}
 	want := map[string][]string{
 		"ip nat source dynamic ":                                              {"inside-to-outside"},
 		"ip nat source dynamic inside-to-outside ":                            {"pool"},
@@ -127,7 +127,7 @@ ip nat source dynamic lan pool BR overload 172.16.1.3
 		"ip nat source dynamic inside-to-outside pool HQ overload 172.16.1.2\n",
 		"ip nat source dynamic lan pool BR overload 172.16.1.3\n")
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	s.Exec("ip nat pool HQ 10.0.0.1-10.0.0.9", nil)
 	s.Exec("ip nat source dynamic inside-to-outside pool HQ overload 1.1.1.1", nil)
 	s.Exec("ip nat source dynamic inside-to-outside pool HQ overload 2.2.2.2", nil)

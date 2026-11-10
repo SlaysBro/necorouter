@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"necorouter/internal/proto"
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"necorouter/internal/term"
@@ -23,6 +25,15 @@ type Client struct {
 	paged  bool // the last command produced buffered output
 	pageN  int
 	buf    strings.Builder
+
+	// live page (show log follow): between Ctl "stream" and "endstream" the lines go to the page
+	in           *os.File
+	out          io.Writer
+	stopWatch    func()        // stops the Ctrl-C watcher, which must not read keys during the page
+	typeahead    func([]byte)  // gives input typed during a command back to the editor
+	live         chan string   // lines for the page; nil when no page is open
+	livePageDone chan struct{} // closed when the page has returned
+	partial      string        // the part of a line that has not ended yet
 }
 
 // takePaged returns the accumulated output for the pager (ok=false means there is nothing to show).
@@ -65,16 +76,22 @@ func (c *Client) call(r Req, out func(string)) (Resp, error) {
 		}
 		if rs.Ctl != "" {
 			switch rs.Ctl {
-			case "page":
+			case proto.CtlPage:
 				c.paging, c.pageN = true, rs.N
 				c.buf.Reset()
-			case "endpage":
+			case proto.CtlEndPage:
 				c.paging = false
 				c.paged = true
+			case proto.CtlStream:
+				c.startLive()
+			case proto.CtlEndStream:
+				c.endLive()
 			}
 			continue
 		}
-		if c.paging {
+		if c.live != nil {
+			c.feedLive(rs.Out)
+		} else if c.paging {
 			c.buf.WriteString(rs.Out)
 		} else if out != nil {
 			out(rs.Out)
@@ -97,9 +114,11 @@ func Run(o Options, in *os.File, out io.Writer) error {
 		return err
 	}
 	defer c.Close()
+	c.typeahead = ed.Typeahead
+	c.out = out
 	emit := func(t string) { fmt.Fprint(out, t) }
 	tty := term.IsTerminal(in) && len(o.Cmds) == 0
-	rs, err := c.call(Req{Op: "hello", TTY: tty}, emit)
+	rs, err := c.call(Req{Op: proto.OpHello, TTY: tty}, emit)
 	if err != nil {
 		return err
 	}
@@ -116,7 +135,7 @@ func loop(c *Client, ed *term.Editor, prompt string, o Options, out io.Writer) {
 	emit := func(s string) { fmt.Fprint(out, s) }
 	if len(o.Cmds) > 0 {
 		for _, line := range o.Cmds {
-			rs, err := c.call(Req{Op: "exec", Line: line}, emit)
+			rs, err := c.call(Req{Op: proto.OpExec, Line: line}, emit)
 			if err != nil || rs.Quit {
 				break
 			}
@@ -125,14 +144,14 @@ func loop(c *Client, ed *term.Editor, prompt string, o Options, out io.Writer) {
 	}
 	hooks := term.Hooks{
 		Help: func(l string) string {
-			rs, err := c.call(Req{Op: "help", Line: l}, nil)
+			rs, err := c.call(Req{Op: proto.OpHelp, Line: l}, nil)
 			if err != nil {
 				return "% connection lost\n"
 			}
 			return rs.Out
 		},
 		Complete: func(l string) (string, []string) {
-			rs, err := c.call(Req{Op: "complete", Line: l}, nil)
+			rs, err := c.call(Req{Op: proto.OpComplete, Line: l}, nil)
 			if err != nil {
 				return l, nil
 			}
@@ -171,22 +190,31 @@ func loop(c *Client, ed *term.Editor, prompt string, o Options, out io.Writer) {
 // raw mode and Ctrl-C (0x03) is sent to the daemon as "intr" instead of killing
 // the client shell. This way ping can be stopped while staying in the CLI.
 func (c *Client) execInterruptible(in *os.File, line string, emit func(string)) (Resp, error) {
+	c.in = in
 	if !term.IsTerminal(in) {
-		return c.call(Req{Op: "exec", Line: line}, emit)
+		return c.call(Req{Op: proto.OpExec, Line: line}, emit)
 	}
 	restore, err := term.Raw(in)
 	if err != nil {
-		return c.call(Req{Op: "exec", Line: line}, emit)
+		return c.call(Req{Op: proto.OpExec, Line: line}, emit)
 	}
 	stop := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		term.WatchInterrupt(in, stop, func() { _ = c.enc.Encode(Req{Op: "intr"}) })
+		term.WatchInterrupt(in, stop, func() { _ = c.enc.Encode(Req{Op: proto.OpIntr}) }, c.typeahead)
 	}()
-	rs, err := c.call(Req{Op: "exec", Line: line}, emit)
-	close(stop)
-	<-finished // the watcher must exit before the next ReadLine so as not to swallow input
+	var once sync.Once
+	c.stopWatch = func() {
+		once.Do(func() {
+			close(stop)
+			<-finished // the watcher must exit before anything else reads the terminal
+		})
+	}
+	rs, err := c.call(Req{Op: proto.OpExec, Line: line}, emit)
+	c.stopWatch()
+	c.stopWatch = nil
+	c.endLive()
 	restore()
 	return rs, err
 }

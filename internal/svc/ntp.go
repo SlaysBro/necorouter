@@ -65,5 +65,7 @@ func NTPSync(env *Env) (string, error) {
 	if c == "" {
 		return "", fmt.Errorf("chronyc is not installed")
 	}
-	return run(c, "-h", "127.0.0.1", "makestep")
+	// chronyc without -h talks to chronyd over its Unix socket, where root may issue commands.
+	// Over UDP (-h 127.0.0.1, cmdport 323) chronyd answers write commands with "501 Not authorised".
+	return run(c, "makestep")
 }

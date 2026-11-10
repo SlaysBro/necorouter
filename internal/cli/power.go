@@ -183,6 +183,25 @@ func cmdEmptyConfig(s *Session, _ []string) error {
 	})
 }
 
+// cmdEmptyConfigRunning: copy empty-config running-config — the running configuration becomes the factory
+// configuration and is applied now. Same checks as any load into running-config (lockout protection).
+func cmdEmptyConfigRunning(s *Session, _ []string) error {
+	if s.noApply {
+		return nil
+	}
+	cfg := config.New()
+	warn := "% Running configuration will be replaced with factory defaults and applied now.\n" +
+		"%          Unsaved changes will be lost. User accounts created on this router will be deleted.\n"
+	return s.ask(warn, "Continue?", func(s *Session) error {
+		if err := s.loadRunning(cfg); err != nil {
+			return err
+		}
+		s.journal("copy empty-config running-config")
+		s.Printf("[OK] running-config replaced with factory defaults\n")
+		return nil
+	})
+}
+
 // reloadNode: reload and its variants.
 func reloadNode() *Node {
 	return K("reload", "Halt and perform a cold restart",

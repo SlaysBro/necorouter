@@ -11,13 +11,30 @@ open(root + "/etc/necorouter/startup-config", "w").write(
     "hostname lab-rtr\nend\n")
 env = dict(os.environ, NECOROUTER_ROOT=root)
 d = subprocess.Popen([BIN, "daemon"], env=env, stderr=open(root + "/d.log", "w"))
-for _ in range(50):
-    if os.path.exists(root + "/run/necorouter/ctl.sock"): break
+for _ in range(300):
+    if os.path.exists(root + "/run/necorouter/ctl.sock") or d.poll() is not None: break
     time.sleep(0.1)
+if not os.path.exists(root + "/run/necorouter/ctl.sock"):
+    if d.poll() is None: os.kill(d.pid, 3)  # SIGQUIT: the Go runtime writes all goroutine stacks to d.log
+    time.sleep(1)
+    print("processes:\n" + subprocess.run(["ps", "-ef"], capture_output=True, text=True).stdout)
+    sys.exit("necorouter daemon did not create the control socket (rc=%s); d.log:\n%s"
+             % (d.poll(), open(root + "/d.log").read()))
 
 pid, fd = pty.fork()
 if pid == 0:
     os.execve(BIN, [BIN, "shell"], env)
+
+status = None  # exit status of the login shell; waitpid(WNOHANG) reaps the child, so it is collected once
+def shell_exited():
+    global status
+    if status is None:
+        try:
+            p, st = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return True
+        if p == pid: status = st
+    return status is not None
 
 buf = b""
 def read(t=1.0):
@@ -88,18 +105,20 @@ o = send("\x15")
 o = send("configure terminal\r", 0.8)
 o = send("interface isp\r", 0.8)
 o = send("\x04", 0.8)
-check("Ctrl-D in interface mode goes back to config mode", "lab-rtr(config)#" in o and os.waitpid(pid, os.WNOHANG)[0] == 0, repr(o))
+check("Ctrl-D in interface mode goes back to config mode", "lab-rtr(config)#" in o and not shell_exited(), repr(o))
 o = send("\x04", 0.8)
 check("Ctrl-D in config mode goes back to privileged mode", "lab-rtr#" in o and "(config" not in o.split("lab-rtr#")[-1], repr(o))
 o = send("abc", 0.3)
 o = send("\x04", 0.3)                  # non-empty line: Ctrl-D deletes a character instead of exiting
 o = send("\x15", 0.3)
-check("Ctrl-D on a non-empty line does not log out", os.waitpid(pid, os.WNOHANG)[0] == 0, repr(o))
+check("Ctrl-D on a non-empty line does not log out", not shell_exited(), repr(o))
 o = send("\x04", 1.2)
 time.sleep(0.3)
-done = os.waitpid(pid, os.WNOHANG)
-check("Ctrl-D at the base level ends the login shell (getty then shows the login prompt again)", done[0] == pid and os.WIFEXITED(done[1]) and os.WEXITSTATUS(done[1]) == 0, repr(done))
+shell_exited()
+check("Ctrl-D at the base level ends the login shell (getty then shows the login prompt again)", status is not None and os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0, repr(status))
 
 d.terminate(); d.wait()
+if fails:
+    print("--- necorouter daemon log ---\n" + open(root + "/d.log").read())
 print("\nFAILED: %s" % fails if fails else "\nALL CLI CHECKS PASSED")
 sys.exit(1 if fails else 0)

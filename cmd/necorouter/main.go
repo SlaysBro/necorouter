@@ -82,9 +82,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "necorouter issue:", err)
 			os.Exit(1)
 		}
-	case "askpass":
-		// invoked by ssh via SSH_ASKPASS: prints the password passed by the daemon to the scp/sftp process
-		fmt.Println(os.Getenv("NECOROUTER_ASKPASS"))
 	case "version", "--version", "-v":
 		fmt.Println("necorouter", cli.VersionString())
 	default:

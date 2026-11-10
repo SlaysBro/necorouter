@@ -3,6 +3,7 @@ package svc
 import (
 	"io"
 	"log"
+	"sort"
 	"strings"
 	"testing"
 
@@ -124,4 +125,15 @@ func TestFmapCryptoMapRuleIsAccepted(t *testing.T) {
 	if len(warns) != 1 || !strings.Contains(warns[0], "crypto-map NOSUCH does not exist") {
 		t.Fatalf("warns: %v", warns)
 	}
+}
+
+// ipsecNames returns the connection names (for tests and diagnostics).
+func ipsecNames(c *config.Config) []string {
+	conns, _ := ipsecConns(c)
+	var out []string
+	for _, cn := range conns {
+		out = append(out, cn.name)
+	}
+	sort.Strings(out)
+	return out
 }

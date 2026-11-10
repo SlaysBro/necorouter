@@ -4,7 +4,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"necorouter/internal/config"
 )
@@ -62,11 +61,11 @@ func TestWriteFileListShowAndOverwriteConfirm(t *testing.T) {
 }
 
 // copy file ... startup-config: warning and confirmation; a file with errors is not accepted;
-// running-config does not change; the old startup goes to history (config-history).
+// running-config does not change; the old startup goes to history (config-features).
 func TestCopyFileToStartup(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
-	enableServices(s, "config-history")
+	enableServices(s, "config-features")
 	runCmd(s, "configure terminal")
 	runCmd(s, "hostname alpha")
 	runCmd(s, "end")
@@ -109,7 +108,7 @@ func TestCopyFileToStartup(t *testing.T) {
 	}
 }
 
-// Copying ordinary files to running-config needs config-manage; crash-config recovery remains available without it.
+// Copying ordinary files to running-config needs config-features; crash-config recovery remains available without it.
 func TestCopyToRunningGateAndLockoutProtection(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
@@ -122,9 +121,9 @@ func TestCopyToRunningGateAndLockoutProtection(t *testing.T) {
 	runCmd(s, "end")
 
 	if out := runCmd(s, "copy file alpha running-config"); !strings.Contains(out, "%") {
-		t.Fatalf("copy to running must be hidden before config-manage: %q", out)
+		t.Fatalf("copy to running must be hidden before config-features: %q", out)
 	}
-	enableServices(s, "config-manage")
+	enableServices(s, "config-features")
 	out := runCmd(s, "copy file alpha running-config")
 	if !strings.Contains(out, "Unsaved changes will be lost") || s.Prompt() != "Continue? [y/N] " {
 		t.Fatalf("no warning: %q prompt=%q", out, s.Prompt())
@@ -158,12 +157,12 @@ func TestDeleteDiffAndJournal(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
 	if out := runCmd(s, "delete config file x"); !strings.Contains(out, "%") {
-		t.Fatalf("delete must be hidden before config-manage: %q", out)
+		t.Fatalf("delete must be hidden before config-features: %q", out)
 	}
 	if out := runCmd(s, "show config journal"); !strings.Contains(out, "%") {
-		t.Fatalf("journal must be hidden before config-journal: %q", out)
+		t.Fatalf("journal must be hidden before config-features: %q", out)
 	}
-	enableServices(s, "config-journal", "config-manage")
+	enableServices(s, "config-features", "config-features")
 	runCmd(s, "configure terminal")
 	runCmd(s, "hostname alpha")
 	runCmd(s, "end")
@@ -196,7 +195,7 @@ func TestDeleteDiffAndJournal(t *testing.T) {
 	}
 
 	j := runCmd(s, "show config journal")
-	for _, want := range []string{"write file a", "write file b", "delete config file a", "feature config-manage on"} {
+	for _, want := range []string{"write file a", "write file b", "delete config file a", "feature config-features on"} {
 		if !strings.Contains(j, want) {
 			t.Fatalf("journal lacks %q:\n%s", want, j)
 		}
@@ -207,7 +206,7 @@ func TestDeleteDiffAndJournal(t *testing.T) {
 func TestAutosaveHistory(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
-	enableServices(s, "config-history")
+	enableServices(s, "config-features")
 	runCmd(s, "configure terminal")
 	runCmd(s, "hostname one")
 	runCmd(s, "end")
@@ -250,9 +249,9 @@ func TestWriteDescriptionAndHistoryList(t *testing.T) {
 	r := newTestRouter(t)
 	s := sessionOn(r, "root")
 	if out := runCmd(s, "write description first"); !strings.Contains(out, "%") {
-		t.Fatalf("write description must be hidden before config-history: %q", out)
+		t.Fatalf("write description must be hidden before config-features: %q", out)
 	}
-	enableServices(s, "config-history")
+	enableServices(s, "config-features")
 	if out := runCmd(s, "write description before ospf"); !strings.Contains(out, "[OK]") {
 		t.Fatalf("write description failed: %q", out)
 	}
@@ -280,90 +279,30 @@ func TestNewCommandsHiddenUntilService(t *testing.T) {
 		t.Fatalf("hidden commands leaked into help:\n%s", out)
 	}
 	if out := s.Help("copy crash-config "); !strings.Contains(out, "running-config") || !strings.Contains(out, "startup-config") {
-		t.Fatalf("both crash-config copy operations must be available without config-manage:\n%s", out)
+		t.Fatalf("both crash-config copy operations must be available without config-features:\n%s", out)
 	}
-	if out := s.Help("copy file crash "); !strings.Contains(out, "running-config") || !strings.Contains(out, "startup-config") {
-		t.Fatalf("crash file aliases must have the same copy operations without config-manage:\n%s", out)
+	if out := s.Help("copy file crash "); !strings.Contains(out, "startup-config") || strings.Contains(out, "running-config") {
+		t.Fatalf("copy file offers startup-config only, and running-config only with config-features:\n%s", out)
 	}
 	if out := s.Help("delete config file "); !strings.Contains(out, "crash") || !strings.Contains(out, "crash-config") {
-		t.Fatalf("crash-config deletion must be available without config-manage:\n%s", out)
+		t.Fatalf("crash-config deletion must be available without config-features:\n%s", out)
 	}
 	if out := s.Help("write "); strings.Contains(out, "description") {
 		t.Fatalf("description leaked into write help:\n%s", out)
 	}
-	enableServices(s, "config-history", "config-manage", "config-journal")
+	enableServices(s, "config-features", "config-features", "config-features")
 	if out := s.Help("show config "); !strings.Contains(out, "diff") || !strings.Contains(out, "history") || !strings.Contains(out, "journal") {
 		t.Fatalf("enabled commands missing from help:\n%s", out)
 	}
 	if out := s.Help("copy crash-config "); !strings.Contains(out, "startup-config") || !strings.Contains(out, "running-config") {
-		t.Fatalf("crash-config copy options missing after config-manage:\n%s", out)
+		t.Fatalf("crash-config copy options missing after config-features:\n%s", out)
 	}
 	// disabling services changes no settings and deletes no files
 	runCmd(s, "configure terminal")
 	runCmd(s, "startup-history keep 7")
-	runCmd(s, "no feature config-history")
+	runCmd(s, "no feature config-features")
 	runCmd(s, "end")
 	if r.Cfg.StartupKeep != 7 {
 		t.Fatalf("keep must survive disabling: %d", r.Cfg.StartupKeep)
-	}
-}
-
-// startup-config archives: copy startup-config storage, show backups, delete backup storage.
-func TestBackupStorage(t *testing.T) {
-	r := newTestRouter(t)
-	s := sessionOn(r, "root")
-	if out := runCmd(s, "copy startup-config storage"); !strings.Contains(out, "startup-config not found") {
-		t.Fatalf("no startup-config yet: %q", out)
-	}
-	runCmd(s, "configure terminal")
-	runCmd(s, "hostname alpha")
-	runCmd(s, "end")
-	runCmd(s, "write")
-	out := runCmd(s, "copy startup-config storage description My_first backup")
-	if !strings.Contains(out, "startup_backup_alpha_") || !strings.Contains(out, ".tar.gz") {
-		t.Fatalf("backup not created: %q", out)
-	}
-	names := listBackups(r.P.Backups())
-	if len(names) != 1 {
-		t.Fatalf("want 1 backup, got %v", names)
-	}
-	st, desc, err := readBackup(r.P.Backups() + "/" + names[0])
-	if err != nil || !strings.Contains(st, "hostname alpha") || desc != "My_first backup" {
-		t.Fatalf("archive content wrong: %v %q %q", err, st, desc)
-	}
-	if out := runCmd(s, "show backups"); !strings.Contains(out, names[0]) || !strings.Contains(out, "My_first_backup") {
-		t.Fatalf("show backups: %q", out)
-	}
-	// a corrupted archive is detected by its checksum
-	bad := r.P.Backups() + "/startup_backup_x_2020-01-01_00-00-00.tar.gz"
-	data, _ := makeBackup("hostname x\n", "", time.Now())
-	data[len(data)/2] ^= 0xff
-	_ = os.WriteFile(bad, data, 0o600)
-	if _, _, err := readBackup(bad); err == nil {
-		t.Fatal("damaged archive accepted")
-	}
-	if out := runCmd(s, "delete backup storage ../../etc/passwd"); !strings.Contains(out, "invalid backup name") {
-		t.Fatalf("path accepted: %q", out)
-	}
-	runCmd(s, "delete backup storage "+names[0])
-	runCmd(s, "n")
-	if len(listBackups(r.P.Backups())) != 2 {
-		t.Fatal("abort must keep backups")
-	}
-	runCmd(s, "delete backup storage *")
-	runCmd(s, "y")
-	if len(listBackups(r.P.Backups())) != 0 {
-		t.Fatal("delete * left backups")
-	}
-	// the commands are visible without feature and do not conflict with config-manage
-	if out := s.Help("copy startup-config "); !strings.Contains(out, "storage") || strings.Contains(out, "running-config") {
-		t.Fatalf("help before service:\n%s", out)
-	}
-	enableServices(s, "config-manage")
-	if out := s.Help("copy startup-config "); !strings.Contains(out, "storage") || !strings.Contains(out, "running-config") {
-		t.Fatalf("help after service:\n%s", out)
-	}
-	if out := runCmd(s, "copy startup-config storage"); !strings.Contains(out, "[OK]") {
-		t.Fatalf("storage after config-manage: %q", out)
 	}
 }

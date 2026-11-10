@@ -63,16 +63,6 @@ func TestTakenAccountShellChangedByAdminIsLeftAlone(t *testing.T) {
 	}
 }
 
-func TestLegacyRouterShellWithoutRecordFallsBack(t *testing.T) {
-	u := newUserEnv(t, "root:x:0:0:root:/root:/bin/bash\nold:x:1010:1010::/home/old:"+ShellPath+"\n")
-	realUsermod(t, u)
-	_ = os.WriteFile(shellsFile, []byte("/bin/sh\n/bin/bash\n"), 0o644)
-	_, _ = (&usersSvc{}).Apply(u.env, cfgUsers())
-	if a, _ := lookupAccount("old"); a.Shell != "/bin/bash" {
-		t.Fatalf("legacy account must get a normal shell, has %q", a.Shell)
-	}
-}
-
 func TestResolveRequiresRouterShell(t *testing.T) {
 	newUserEnv(t, "root:x:0:0::/root:/bin/bash\nneto:x:1001:1001::/h:"+ShellPath+"\nbob:x:1002:1002::/h:/bin/bash\nsvc:x:500:500::/:"+ShellPath+"\n")
 	if n, err := ResolveUID(0); err != nil || n != "root" {

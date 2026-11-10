@@ -47,7 +47,7 @@ func fmapEnter(s *Session, v []string) error {
 		seq = fm.NextSeq()
 	}
 	fm.GetRule(seq)
-	s.enter("fmap", v[0]+" "+strconv.Itoa(seq))
+	s.enter(modeFMap, v[0]+" "+strconv.Itoa(seq))
 	return nil
 }
 
@@ -248,9 +248,6 @@ func fmapIfaceNode() *Node {
 
 func showFilterMapNode() *Node {
 	show := func(s *Session, v []string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		found := false
 		for _, fm := range s.cfg().FilterMaps {
 			if len(v) > 0 && fm.Name != v[0] {

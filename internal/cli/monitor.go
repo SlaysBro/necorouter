@@ -11,9 +11,6 @@ import (
 // LINE (if set) keeps only the lines containing that word. no terminal monitor — turns it off.
 func monitorNode() *Node {
 	on := func(s *Session, word string) error {
-		if err := s.needAdmin(); err != nil {
-			return err
-		}
 		if s.noApply {
 			return nil
 		}

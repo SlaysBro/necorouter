@@ -23,7 +23,7 @@ func TestIPAddressReplaces(t *testing.T) {
 // no ip address A/M removes only the given address; no ip address — all of them.
 func TestIPAddressNoForms(t *testing.T) {
 	r := newTestRouter(t)
-	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: "config"}}}
+	s := &Session{R: r, User: "root", Role: "admin", noApply: true, frames: []frame{{kind: modeConfig}}}
 	s.Exec("interface isp", nil)
 	s.Exec("ip address 10.1.1.1/24", nil)
 	s.Exec("ip address 10.2.2.2/24", nil)

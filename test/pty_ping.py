@@ -18,9 +18,15 @@ i=0; while :; do i=$((i+1)); echo "64 bytes icmp_seq=$i"; sleep 0.1; done
 os.chmod(root + "/fakebin/ping", 0o755)
 env = dict(os.environ, NECOROUTER_ROOT=root, PATH=root + "/fakebin:" + os.environ["PATH"])
 d = subprocess.Popen([BIN, "daemon"], env=env, stderr=open(root + "/d.log", "w"))
-for _ in range(50):
-    if os.path.exists(root + "/run/necorouter/ctl.sock"): break
+for _ in range(300):
+    if os.path.exists(root + "/run/necorouter/ctl.sock") or d.poll() is not None: break
     time.sleep(0.1)
+if not os.path.exists(root + "/run/necorouter/ctl.sock"):
+    if d.poll() is None: os.kill(d.pid, 3)  # SIGQUIT: the Go runtime writes all goroutine stacks to d.log
+    time.sleep(1)
+    print("processes:\n" + subprocess.run(["ps", "-ef"], capture_output=True, text=True).stdout)
+    sys.exit("necorouter daemon did not create the control socket (rc=%s); d.log:\n%s"
+             % (d.poll(), open(root + "/d.log").read()))
 pid, fd = pty.fork()
 if pid == 0:
     os.execve(BIN, [BIN, "shell"], env)

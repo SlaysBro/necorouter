@@ -17,7 +17,7 @@ import (
 //     needed so the crash copy is up to date (SIGKILL and power loss cannot be intercepted);
 //   - running.lock  — "daemon running" marker; a clean shutdown removes it;
 //   - crash-config  — copy of the snapshot made at startup after an abnormal termination;
-//   - startup-history/ and autosave-history/ — history of copies (config-history service):
+//   - startup-history/ and autosave-history/ — history of copies (config-features service):
 //     old startup-configs on overwrite and timer-based copies of running-config.
 const (
 	snapEvery   = time.Second // period of the change check; the autosave period is set in the configuration
@@ -149,9 +149,9 @@ func (r *Router) Watch(done <-chan struct{}, logf func(string, ...any)) {
 			}
 			snapFP, snapErr = fp, err
 
-			// autosave history: requires the config-history service and an interval; fires on the period
+			// autosave history: requires the config-features service and an interval; fires on the period
 			r.mu.Lock()
-			on := r.Cfg.AutosaveOn && r.Cfg.Features["config-history"] // off by default; enabled by autosave interval with feature config-history
+			on := autosaveActive(r) // off by default; the setting is kept without the feature, but does nothing
 			mins := r.Cfg.AutosaveMin
 			if mins == 0 {
 				mins = config.AutosaveDefaultMin
@@ -254,3 +254,6 @@ func newestHistory(dir, prefix string) string {
 	}
 	return filepath.Join(dir, names[len(names)-1])
 }
+
+// autosaveActive is the one rule for the autosave: the setting is in the configuration and the feature is on.
+func autosaveActive(r *Router) bool { return r.Cfg.AutosaveOn && r.Cfg.Features["config-features"] }

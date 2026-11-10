@@ -18,7 +18,6 @@ const (
 	viciCmdUnknown   = 2
 	viciEvRegister   = 3
 	viciEvConfirm    = 5
-	viciEvUnknown    = 6
 	viciEvent        = 7
 	viciSectionStart = 1
 	viciSectionEnd   = 2

@@ -3,13 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-// Output modifiers for show commands: `show ... | include TEXT`, `| redirect FILE`, `> FILE`.
+// Output modifiers for show commands: `show ... | include TEXT` and the other filters of EcoRouter.
+// Output redirection to a file is not part of the command set (EcoRouter has none): '>' is refused.
 
 type pipeMod struct{ kind, arg string }
 
@@ -19,7 +18,6 @@ var pipeKinds = []struct{ word, help, arg string }{
 	{"grep", "Show lines that match the regular expression", "REGEXP"},
 	{"include", "Include only lines that contain the text", "TEXT"},
 	{"nopager", "Do not paginate the output", ""},
-	{"redirect", "Write the output to a file", "FILE"},
 }
 
 // pipeSplit splits a string by `|` and `>` outside quotes. The first element is the command itself.
@@ -57,14 +55,7 @@ func splitPipe(line string) (cmd string, mods []pipeMod, err error) {
 	for i := 1; i < len(parts); i++ {
 		p := parts[i]
 		if seps[i] == '>' {
-			if p == "" {
-				return "", nil, fmt.Errorf("Incomplete command: a file name is required after '>'")
-			}
-			if i != len(parts)-1 {
-				return "", nil, fmt.Errorf("'>' must be the last modifier")
-			}
-			mods = append(mods, pipeMod{"redirect", unquote(p)})
-			continue
+			return "", nil, fmt.Errorf("Unrecognized modifier \">\"")
 		}
 		w, arg, _ := strings.Cut(p, " ")
 		if w == "" {
@@ -90,9 +81,6 @@ func splitPipe(line string) (cmd string, mods []pipeMod, err error) {
 		if pk.arg == "" && arg != "" {
 			return "", nil, fmt.Errorf("%s takes no arguments", pk.word)
 		}
-		if pk.word == "redirect" && i != len(parts)-1 {
-			return "", nil, fmt.Errorf("redirect must be the last modifier")
-		}
 		arg = unquote(arg)
 		if pk.word == "grep" {
 			if _, e := regexp.Compile(arg); e != nil {
@@ -104,8 +92,6 @@ func splitPipe(line string) (cmd string, mods []pipeMod, err error) {
 	return parts[0], mods, nil
 }
 
-var redirectNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
-
 // filterWriter applies modifiers line by line (works for show log follow too).
 type filterWriter struct {
 	dst   io.Writer
@@ -113,27 +99,14 @@ type filterWriter struct {
 	res   []*regexp.Regexp
 	begun []bool
 	buf   []byte
-	file  *os.File // redirect: output goes to a file, not the screen
 }
 
-func newFilterWriter(dst io.Writer, mods []pipeMod, filesDir string) (*filterWriter, error) {
+func newFilterWriter(dst io.Writer, mods []pipeMod) (*filterWriter, error) {
 	fw := &filterWriter{dst: dst, mods: mods, res: make([]*regexp.Regexp, len(mods)), begun: make([]bool, len(mods))}
 	for i, m := range mods {
 		switch m.kind {
 		case "grep":
 			fw.res[i] = regexp.MustCompile(m.arg)
-		case "redirect":
-			if !redirectNameRe.MatchString(m.arg) || len(m.arg) > 128 {
-				return nil, fmt.Errorf("invalid file name %q: use letters, digits, '.', '_' and '-'", m.arg)
-			}
-			if err := os.MkdirAll(filesDir, 0o750); err != nil {
-				return nil, err
-			}
-			f, err := os.OpenFile(filepath.Join(filesDir, m.arg), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o640)
-			if err != nil {
-				return nil, err
-			}
-			fw.file = f
 		}
 	}
 	return fw, nil
@@ -170,10 +143,6 @@ func (f *filterWriter) emit(line string) {
 	if !f.pass(line) {
 		return
 	}
-	if f.file != nil {
-		_, _ = io.WriteString(f.file, line+"\n")
-		return
-	}
 	_, _ = io.WriteString(f.dst, line+"\n")
 }
 
@@ -195,11 +164,6 @@ func (f *filterWriter) Close() error {
 	if len(f.buf) > 0 {
 		f.emit(string(f.buf))
 		f.buf = nil
-	}
-	if f.file != nil {
-		err := f.file.Close()
-		f.file = nil
-		return err
 	}
 	return nil
 }
