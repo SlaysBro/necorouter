@@ -1,3 +1,7 @@
+# Changelog
+
+## v0.23-beta.1
+
 - Remove the leftover code and tests of copying over SSH (`internal/cli/transfer.go`): the commands were already removed from the tree, and their tests failed in CI.
 - Remove unused code: the unwired backup storage code (`internal/cli/backups.go`), the helpers `logx.Warnf`, `logx.Errorf`, `logx.Fatalf`, `config.ValidRole` and `Paths.FilesDir` (tests now call the logger and the role list directly), the `roleOK` and `viciEvUnknown` declarations, and the `askpass` subcommand of the binary (it served only the removed SSH copy).
 - Ports of new network cards are named by speed: `e0` (up to 100 Mbit/s), `ge0` (1 Gbit/s), `te0` (10 Gbit/s and faster, or speed unknown). Names already in `ports.map` are kept.
